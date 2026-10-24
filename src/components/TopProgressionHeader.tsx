@@ -1,0 +1,460 @@
+import React from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Flame,
+  Grid,
+  Lock,
+  Redo2,
+  RotateCcw,
+  Share2,
+  Skull,
+  Sparkles,
+  Undo2,
+} from 'lucide-react';
+import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
+import { PRESET_SCENARIOS } from '../domain/presets';
+import { BoardMode, PresetScenario, StragglerCellInfo } from '../types/forge';
+import { RelicSvgIcon } from './RelicTileVisual';
+
+interface TopProgressionHeaderProps {
+  boardMode: BoardMode;
+  onToggleBoardMode: (mode: BoardMode) => void;
+  fiveTileSuperMerge: boolean;
+  onToggleFiveTileSuperMerge: (enabled: boolean) => void;
+  maxUnlockedStar: number;
+  isManualMaxStar: boolean;
+  onSelectMaxStar: (star: number) => void;
+  onResetAutoMaxStar: () => void;
+  board: Uint8Array;
+  emptyCellsCount: number;
+  totalPlayableCells: number;
+  stragglers: StragglerCellInfo[];
+  threeTileMobility: number;
+  triangleMobility: number;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  onClearBoard: () => void;
+  onLoadPreset: (preset: PresetScenario) => void;
+  onShareState: () => void;
+  activePresetId: string | null;
+}
+
+export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
+  boardMode,
+  onToggleBoardMode,
+  fiveTileSuperMerge,
+  onToggleFiveTileSuperMerge,
+  maxUnlockedStar,
+  isManualMaxStar,
+  onSelectMaxStar,
+  onResetAutoMaxStar,
+  board,
+  emptyCellsCount,
+  totalPlayableCells,
+  stragglers,
+  threeTileMobility,
+  triangleMobility,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  onClearBoard,
+  onLoadPreset,
+  onShareState,
+  activePresetId,
+}) => {
+  const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
+  const deadCount = stragglers.filter((s) => s.status === 'dead').length;
+  const atRiskCount = stragglers.filter((s) => s.status === 'at-risk').length;
+
+  // Count how many tiles of each star exist on the board
+  const starBoardCounts = new Array(11).fill(0);
+  for (let i = 0; i < board.length; i++) {
+    const s = board[i];
+    if (s >= 1 && s <= 10) starBoardCounts[s]++;
+  }
+
+  return (
+    <header className="bg-[#131620] border-b border-[#293044] shadow-lg">
+      <div className="max-w-[1680px] mx-auto px-3 sm:px-5 py-2 space-y-2">
+        {/* Top Row: Brand, Layout Toggle, Presets, Undo/Redo/Share */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 via-orange-600 to-red-700 flex items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.4)] border border-amber-300/40">
+              <Flame className="w-5 h-5 text-amber-100" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 bg-clip-text text-transparent">
+                  EF2 Relic Forge Advisor
+                </h1>
+                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-400/30">
+                  2-Ply Tactical Solver
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Controls: Layout Mode, Scenario Loader, History */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Board Layout Toggle */}
+            <div className="inline-flex items-center rounded-lg bg-[#0D0F17] p-1 border border-[#293044]">
+              <button
+                type="button"
+                onClick={() => onToggleBoardMode('23-cell')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  boardMode === '23-cell'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Authentic in-game 5-4-5-4-5 staggered layout (23 cells)"
+              >
+                <Grid className="w-3.5 h-3.5" />
+                <span>23-Cell Authentic (5-4-5-4-5)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleBoardMode('25-cell')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  boardMode === '25-cell'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Full 5x5 staggered layout (25 cells)"
+              >
+                25-Cell Full (5×5)
+              </button>
+            </div>
+
+            {/* 5+ Tile Super Merge Rule Toggle */}
+            <button
+              type="button"
+              onClick={() => onToggleFiveTileSuperMerge(!fiveTileSuperMerge)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                fiveTileSuperMerge
+                  ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+                  : 'bg-[#0D0F17] text-slate-400 border-[#293044] hover:text-slate-200'
+              }`}
+              title="Toggle whether merging 5+ identical tiles at once jumps +2★ (e.g. 5× 1★ → 3★) vs +1★"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>5+ Merge: {fiveTileSuperMerge ? '+2★ Super' : '+1★ Std'}</span>
+            </button>
+
+            {/* Load Example Scenario Dropdown */}
+            <div className="relative">
+              <select
+                aria-label="Load Example Gameplay Scenario"
+                value={activePresetId || ''}
+                onChange={(e) => {
+                  const found = PRESET_SCENARIOS.find((p) => p.id === e.target.value);
+                  if (found) onLoadPreset(found);
+                }}
+                className="bg-[#1A1E2C] hover:bg-[#22283A] text-amber-200 text-xs font-semibold rounded-lg px-3 py-1.5 border border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
+              >
+                <option value="" disabled>
+                  🎬 Load Gameplay Scenario...
+                </option>
+                {PRESET_SCENARIOS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.title} ({preset.videoTimestamp})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Undo / Redo / Share / Reset */}
+            <div className="flex items-center gap-1 bg-[#0D0F17] p-1 rounded-lg border border-[#293044]">
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:pointer-events-none"
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onRedo}
+                disabled={!canRedo}
+                className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:pointer-events-none"
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onShareState}
+                className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1"
+                title="Copy shareable board state link"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClearBoard}
+                className="px-2 py-1 rounded text-xs font-medium text-rose-300 hover:text-rose-100 hover:bg-rose-950/60 flex items-center gap-1"
+                title="Clear board and reset run"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Reset</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Middle Row: 10-Slot Relic Progression Bar (1★ to 10★) & Live Board KPIs */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 items-center bg-[#0D0F17]/90 p-2 rounded-xl border border-[#262C3F]">
+          {/* 10-Slot Relic Progression Bar */}
+          <div className="xl:col-span-8 flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Relic Progression & Active Spawn Window:
+                </span>
+                <span className="text-xs font-semibold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-400/30">
+                  Highest Unlocked (M) = {maxUnlockedStar}★
+                </span>
+                <span className="text-[11px] text-emerald-300 font-medium">
+                  Spawning: {minActiveStar}★–{maxUnlockedStar}★
+                </span>
+                {maxUnlockedStar > 4 && (
+                  <span className="text-[11px] text-rose-400 font-semibold">
+                    Retired: 1★{maxUnlockedStar - 4 > 1 ? `–${maxUnlockedStar - 4}★` : ''}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400">
+                  Click 4★–10★ to set Max Unlocked Tier:
+                </span>
+                {isManualMaxStar && (
+                  <button
+                    type="button"
+                    onClick={onResetAutoMaxStar}
+                    className="text-[11px] text-amber-300 hover:underline font-medium"
+                  >
+                    Reset to Auto-Detect
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                const spec = RELIC_SPECS[star];
+                const isRetired = star < minActiveStar;
+                const isActivePool = star >= minActiveStar && star <= maxUnlockedStar;
+                const isMaxUnlocked = star === maxUnlockedStar;
+                const isLocked = star > maxUnlockedStar;
+                const countOnBoard = starBoardCounts[star];
+                const canSelectAsMax = star >= 4;
+
+                return (
+                  <button
+                    key={star}
+                    type="button"
+                    disabled={!canSelectAsMax}
+                    onClick={() => canSelectAsMax && onSelectMaxStar(star)}
+                    title={
+                      isRetired
+                        ? `${star}★ (${spec.name}) — RETIRED (No longer spawns when M=${maxUnlockedStar}★). ${countOnBoard} on board.`
+                        : isActivePool
+                        ? `${star}★ (${spec.name}) — ACTIVE SPAWN POOL. Click to set M=${star}★.`
+                        : `${star}★ (${spec.name}) — LOCKED. Click to set M=${star}★.`
+                    }
+                    className={`relative flex flex-col items-center justify-between p-1.5 rounded-lg border transition-all select-none ${
+                      isActivePool
+                        ? 'bg-[#1D2233] border-amber-400/80 shadow-[0_0_10px_rgba(245,158,11,0.22)]'
+                        : isRetired
+                        ? 'bg-rose-950/25 border-rose-800/50 opacity-75'
+                        : 'bg-[#121520] border-slate-800 opacity-50 hover:opacity-85'
+                    } ${canSelectAsMax ? 'cursor-pointer hover:scale-[1.03]' : 'cursor-default'}`}
+                  >
+                    {/* Top Zone Badge */}
+                    <div className="w-full flex items-center justify-between text-[10px] font-bold leading-none mb-1">
+                      <span
+                        className="px-1 py-0.5 rounded text-white font-black"
+                        style={{ backgroundColor: spec.bgHex }}
+                      >
+                        {star}★
+                      </span>
+                      {isRetired && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-400 font-extrabold uppercase">
+                          <Skull className="w-3 h-3" />
+                        </span>
+                      )}
+                      {isActivePool && (
+                        <span
+                          className={`text-[9px] font-extrabold uppercase ${
+                            isMaxUnlocked ? 'text-amber-300' : 'text-emerald-300'
+                          }`}
+                        >
+                          {isMaxUnlocked ? 'MAX' : 'SPAWN'}
+                        </span>
+                      )}
+                      {isLocked && <Lock className="w-2.5 h-2.5 text-slate-500" />}
+                    </div>
+
+                    {/* Relic Silhouette */}
+                    <div
+                      className="my-0.5"
+                      style={{
+                        color: isLocked ? '#475569' : spec.borderHex,
+                      }}
+                    >
+                      <RelicSvgIcon star={star} className="w-5 h-5" />
+                    </div>
+
+                    {/* Bottom Status / Board Count */}
+                    <div className="w-full flex items-center justify-between text-[9px] leading-none mt-1 pt-1 border-t border-white/10">
+                      <span className="truncate text-slate-300 font-medium">
+                        {isRetired ? 'RETIRED' : isActivePool ? 'ACTIVE' : 'LOCKED'}
+                      </span>
+                      {countOnBoard > 0 && (
+                        <span
+                          className={`px-1 rounded font-bold ${
+                            isRetired
+                              ? 'bg-rose-600 text-white animate-pulse'
+                              : 'bg-slate-700 text-slate-200'
+                          }`}
+                        >
+                          {countOnBoard}×
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Live Board Health KPIs */}
+          <div className="xl:col-span-4 grid grid-cols-3 gap-2">
+            {/* Empty Spaces KPI */}
+            <div className="bg-[#151926] border border-[#283046] rounded-xl p-2.5 flex flex-col justify-between">
+              <span className="text-[11px] text-slate-400 font-medium">Empty Spaces</span>
+              <div className="flex items-baseline justify-between mt-1">
+                <span
+                  className={`text-xl font-black ${
+                    emptyCellsCount <= 5
+                      ? 'text-rose-400'
+                      : emptyCellsCount <= 9
+                      ? 'text-amber-300'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  {emptyCellsCount}{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    / {totalPlayableCells}
+                  </span>
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1">
+                {emptyCellsCount <= 6
+                  ? 'Critical board congestion!'
+                  : 'Contiguous breathing room'}
+              </span>
+            </div>
+
+            {/* Dead / Endangered Stragglers KPI */}
+            <div
+              className={`rounded-xl p-2.5 flex flex-col justify-between border ${
+                deadCount > 0
+                  ? 'bg-rose-950/30 border-rose-600/60'
+                  : atRiskCount > 0
+                  ? 'bg-amber-950/25 border-amber-500/50'
+                  : 'bg-emerald-950/20 border-emerald-600/40'
+              }`}
+            >
+              <span className="text-[11px] text-slate-300 font-medium flex items-center justify-between">
+                <span>Stragglers</span>
+                {deadCount > 0 ? (
+                  <Skull className="w-3.5 h-3.5 text-rose-400" />
+                ) : atRiskCount > 0 ? (
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+              </span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span
+                  className={`text-xl font-black ${
+                    deadCount > 0
+                      ? 'text-rose-400'
+                      : atRiskCount > 0
+                      ? 'text-amber-300'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  {deadCount > 0 ? `${deadCount} Dead` : `${atRiskCount} At-Risk`}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-300/80 mt-1 truncate">
+                {deadCount > 0
+                  ? `Permanent dead space (${minActiveStar - 1}★ or lower)`
+                  : atRiskCount > 0
+                  ? `${atRiskCount}× ${minActiveStar}★ retire at ${maxUnlockedStar + 1}★`
+                  : 'Zero dead spaces!'}
+              </span>
+            </div>
+
+            {/* 3-Tile Piece Mobility KPI (Including 3-Triangle Protection) */}
+            <div
+              className={`rounded-xl p-2.5 flex flex-col justify-between border ${
+                triangleMobility === 0
+                  ? 'bg-rose-950/30 border-rose-600/60'
+                  : triangleMobility <= 2
+                  ? 'bg-amber-950/25 border-amber-500/50'
+                  : 'bg-[#151926] border-[#283046]'
+              }`}
+            >
+              <span className="text-[11px] text-slate-300 font-medium flex items-center justify-between">
+                <span>3-Tile Mobility</span>
+                <Sparkles
+                  className={`w-3.5 h-3.5 ${
+                    triangleMobility === 0 ? 'text-rose-400' : 'text-cyan-400'
+                  }`}
+                />
+              </span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span
+                  className={`text-xl font-black ${
+                    triangleMobility === 0
+                      ? 'text-rose-400'
+                      : threeTileMobility <= 12
+                      ? 'text-amber-300'
+                      : 'text-cyan-300'
+                  }`}
+                >
+                  {threeTileMobility}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  ({triangleMobility} ▲-Tri)
+                </span>
+              </div>
+              <span
+                className={`text-[10px] mt-1 truncate ${
+                  triangleMobility === 0
+                    ? 'text-rose-300 font-bold'
+                    : triangleMobility <= 2
+                    ? 'text-amber-300'
+                    : 'text-slate-400'
+                }`}
+              >
+                {triangleMobility === 0
+                  ? 'DANGER: 0 3-Triangle fits!'
+                  : `Line, Bent, Arch & ${triangleMobility} Triangle fits`}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+};

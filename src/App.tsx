@@ -52,31 +52,31 @@ interface LastMergeMoveContext {
   mergedStar: number;
 }
 
-export const App: React.FC = () => {
-  // Default to Scenario 2 (00:13 Double Cascade) or URL hash if present
-  const initialPreset = PRESET_SCENARIOS[1];
+const DEFAULT_CURRENT_PIECE: PieceConfig = {
+  shapeId: 'pair',
+  rotation: 0,
+  tileStars: [1, 2],
+};
 
+const DEFAULT_NEXT_PIECE: PieceConfig = {
+  shapeId: 'bent3',
+  rotation: 0,
+  tileStars: [1, 2, 2],
+};
+
+export const App: React.FC = () => {
   const [fiveTileSuperMerge, setFiveTileSuperMerge] = useState<boolean>(true);
-  const [board, setBoard] = useState<Uint8Array>(() =>
-    buildBoardFromPreset(initialPreset)
-  );
+  const [board, setBoard] = useState<Uint8Array>(() => new Uint8Array(25));
   const [manualMaxStar, setManualMaxStar] = useState<number | null>(null);
-  const [currentPiece, setCurrentPiece] = useState<PieceConfig>(
-    initialPreset.currentPiece
-  );
-  const [nextPiece, setNextPiece] = useState<PieceConfig>(
-    initialPreset.nextPiece
-  );
-  const [nextPieceKnown, setNextPieceKnown] = useState<boolean>(
-    initialPreset.nextPieceKnown
-  );
-  const [activePresetId, setActivePresetId] = useState<string | null>(
-    initialPreset.id
-  );
+  const [currentPiece, setCurrentPiece] =
+    useState<PieceConfig>(DEFAULT_CURRENT_PIECE);
+  const [nextPiece, setNextPiece] = useState<PieceConfig>(DEFAULT_NEXT_PIECE);
+  const [nextPieceKnown, setNextPieceKnown] = useState<boolean>(true);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
   // Paint brush state (0 = eraser, 1..10 = relic star, 'inspect' | 'popover')
   const [activeBrush, setActiveBrush] = useState<number | 'inspect' | 'popover'>(
-    2
+    1
   );
 
   // Undo / Redo stacks (up to 50 states)
@@ -247,10 +247,13 @@ export const App: React.FC = () => {
     pushHistory();
     setBoard(new Uint8Array(25));
     setManualMaxStar(null);
+    setCurrentPiece(DEFAULT_CURRENT_PIECE);
+    setNextPiece(DEFAULT_NEXT_PIECE);
+    setNextPieceKnown(true);
     setActivePresetId(null);
     setSelectedMoveId(null);
     setLastAmbiguousContext(null);
-    setToastMessage('Board cleared — reset to fresh 4★ run.');
+    setToastMessage('Board cleared — reset to fresh run.');
     setTimeout(() => setToastMessage(null), 3000);
   }, [pushHistory]);
 

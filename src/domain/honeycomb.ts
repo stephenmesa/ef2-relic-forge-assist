@@ -1,21 +1,19 @@
-import { BoardMode, CubeCoord, OffsetCoord, PieceShapeId } from '../types/forge';
+import { CubeCoord, OffsetCoord, PieceShapeId } from '../types/forge';
 import { PIECE_SHAPES } from './constants';
 
 export const BOARD_COLS = 5;
 export const BOARD_MAX_ROWS = 5;
-export const TOTAL_SLOTS = 25; // col * 5 + row (0..24)
+export const TOTAL_SLOTS = 25; // Array storage slots: col * 5 + row (0..24)
+export const TOTAL_BOARD_CELLS = 23; // Authentic staggered honeycomb layout: 5-4-5-4-5
 
-export function getColumnRowCount(col: number, mode: BoardMode): number {
+export function getColumnRowCount(col: number): number {
   if (col < 0 || col >= BOARD_COLS) return 0;
-  if (mode === '23-cell') {
-    return col % 2 === 1 ? 4 : 5;
-  }
-  return 5;
+  return col % 2 === 1 ? 4 : 5;
 }
 
-export function isValidCell(col: number, row: number, mode: BoardMode): boolean {
+export function isValidCell(col: number, row: number): boolean {
   if (col < 0 || col >= BOARD_COLS) return false;
-  const maxRows = getColumnRowCount(col, mode);
+  const maxRows = getColumnRowCount(col);
   return row >= 0 && row < maxRows;
 }
 
@@ -30,17 +28,17 @@ export function indexToCoord(cellIndex: number): OffsetCoord {
   };
 }
 
-export function isCellIndexValid(cellIndex: number, mode: BoardMode): boolean {
+export function isCellIndexValid(cellIndex: number): boolean {
   if (cellIndex < 0 || cellIndex >= TOTAL_SLOTS) return false;
   const col = Math.floor(cellIndex / 5);
   const row = cellIndex % 5;
-  return isValidCell(col, row, mode);
+  return isValidCell(col, row);
 }
 
-export function getValidCellIndices(mode: BoardMode): number[] {
+export function getValidCellIndices(): number[] {
   const indices: number[] = [];
   for (let c = 0; c < BOARD_COLS; c++) {
-    const rows = getColumnRowCount(c, mode);
+    const rows = getColumnRowCount(c);
     for (let r = 0; r < rows; r++) {
       indices.push(cellToIndex(c, r));
     }
@@ -84,8 +82,7 @@ export interface NeighborWithDirection {
 
 export function getDirectionalNeighbors(
   col: number,
-  row: number,
-  mode: BoardMode
+  row: number
 ): NeighborWithDirection[] {
   const isOdd = col % 2 === 1;
   const raw: { dir: NeighborWithDirection['dir']; c: number; r: number }[] = isOdd
@@ -108,7 +105,7 @@ export function getDirectionalNeighbors(
 
   const result: NeighborWithDirection[] = [];
   for (const item of raw) {
-    if (isValidCell(item.c, item.r, mode)) {
+    if (isValidCell(item.c, item.r)) {
       result.push({
         dir: item.dir,
         col: item.c,
@@ -120,26 +117,26 @@ export function getDirectionalNeighbors(
   return result;
 }
 
-function buildPrecomputedNeighbors(mode: BoardMode): number[][] {
+function buildPrecomputedNeighbors(): number[][] {
   const table: number[][] = Array.from({ length: TOTAL_SLOTS }, () => []);
   for (let c = 0; c < BOARD_COLS; c++) {
     for (let r = 0; r < BOARD_MAX_ROWS; r++) {
       const idx = cellToIndex(c, r);
-      if (!isValidCell(c, r, mode)) {
+      if (!isValidCell(c, r)) {
         table[idx] = [];
         continue;
       }
-      table[idx] = getDirectionalNeighbors(c, r, mode).map((n) => n.cellIndex);
+      table[idx] = getDirectionalNeighbors(c, r).map((n) => n.cellIndex);
     }
   }
   return table;
 }
 
-export const PRECOMPUTED_NEIGHBORS_23: number[][] = buildPrecomputedNeighbors('23-cell');
-export const PRECOMPUTED_NEIGHBORS_25: number[][] = buildPrecomputedNeighbors('25-cell');
+export const PRECOMPUTED_NEIGHBORS: number[][] = buildPrecomputedNeighbors();
+export const PRECOMPUTED_NEIGHBORS_23: number[][] = PRECOMPUTED_NEIGHBORS;
 
-export function getPrecomputedNeighbors(mode: BoardMode): number[][] {
-  return mode === '23-cell' ? PRECOMPUTED_NEIGHBORS_23 : PRECOMPUTED_NEIGHBORS_25;
+export function getPrecomputedNeighbors(): number[][] {
+  return PRECOMPUTED_NEIGHBORS;
 }
 
 /**
@@ -208,15 +205,14 @@ export function getCellVisualY(col: number, row: number): number {
 
 /**
  * Given a piece shape, rotation (0..5), tileStars, and an anchor board cell (anchorCol, anchorRow),
- * returns the placed tiles if every tile lands on a valid board cell for the given mode; otherwise null.
+ * returns the placed tiles if every tile lands on a valid board cell; otherwise null.
  */
 export function resolvePiecePlacement(
   shapeId: PieceShapeId,
   rotation: number,
   tileStars: number[],
   anchorCol: number,
-  anchorRow: number,
-  mode: BoardMode
+  anchorRow: number
 ): { tileIndex: number; col: number; row: number; cellIndex: number; star: number }[] | null {
   const [ax, ay, az] = offsetToCube(anchorCol, anchorRow);
   const rotatedOffsets = getRotatedPieceCubeOffsets(shapeId, rotation);
@@ -225,7 +221,7 @@ export function resolvePiecePlacement(
   for (let i = 0; i < rotatedOffsets.length; i++) {
     const [dx, dy, dz] = rotatedOffsets[i];
     const { col, row } = cubeToOffset([ax + dx, ay + dy, az + dz]);
-    if (!isValidCell(col, row, mode)) {
+    if (!isValidCell(col, row)) {
       return null;
     }
     result.push({

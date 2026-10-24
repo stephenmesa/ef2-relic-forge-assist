@@ -27,7 +27,6 @@ import {
 } from './domain/simulator';
 import { solveBestMoves } from './domain/solver';
 import {
-  BoardMode,
   CandidateMove,
   PieceConfig,
   PlacedTile,
@@ -35,7 +34,6 @@ import {
 } from './types/forge';
 
 interface HistorySnapshot {
-  boardMode: BoardMode;
   board: Uint8Array;
   manualMaxStar: number | null;
   currentPiece: PieceConfig;
@@ -58,7 +56,6 @@ export const App: React.FC = () => {
   // Default to Scenario 2 (00:13 Double Cascade) or URL hash if present
   const initialPreset = PRESET_SCENARIOS[1];
 
-  const [boardMode, setBoardMode] = useState<BoardMode>(initialPreset.boardMode);
   const [fiveTileSuperMerge, setFiveTileSuperMerge] = useState<boolean>(true);
   const [board, setBoard] = useState<Uint8Array>(() =>
     buildBoardFromPreset(initialPreset)
@@ -106,7 +103,6 @@ export const App: React.FC = () => {
     if (window.location.hash.length > 1) {
       const decoded = decodeStateFromHash(window.location.hash);
       if (decoded) {
-        setBoardMode(decoded.boardMode);
         setBoard(decoded.board);
         setManualMaxStar(decoded.maxUnlockedStar);
         setCurrentPiece(decoded.currentPiece);
@@ -144,7 +140,6 @@ export const App: React.FC = () => {
   const pushHistory = useCallback(() => {
     setUndoStack((prev) => {
       const snapshot: HistorySnapshot = {
-        boardMode,
         board: new Uint8Array(board),
         manualMaxStar,
         currentPiece: {
@@ -162,7 +157,6 @@ export const App: React.FC = () => {
     });
     setRedoStack([]);
   }, [
-    boardMode,
     board,
     manualMaxStar,
     currentPiece,
@@ -175,7 +169,6 @@ export const App: React.FC = () => {
     if (undoStack.length === 0) return;
     const last = undoStack[undoStack.length - 1];
     const currentSnapshot: HistorySnapshot = {
-      boardMode,
       board: new Uint8Array(board),
       manualMaxStar,
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
@@ -186,7 +179,6 @@ export const App: React.FC = () => {
     setRedoStack((prev) => [...prev, currentSnapshot]);
     setUndoStack((prev) => prev.slice(0, -1));
 
-    setBoardMode(last.boardMode);
     setBoard(last.board);
     setManualMaxStar(last.manualMaxStar);
     setCurrentPiece(last.currentPiece);
@@ -196,7 +188,6 @@ export const App: React.FC = () => {
     setLastAmbiguousContext(null);
   }, [
     undoStack,
-    boardMode,
     board,
     manualMaxStar,
     currentPiece,
@@ -209,7 +200,6 @@ export const App: React.FC = () => {
     if (redoStack.length === 0) return;
     const nextSnap = redoStack[redoStack.length - 1];
     const currentSnapshot: HistorySnapshot = {
-      boardMode,
       board: new Uint8Array(board),
       manualMaxStar,
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
@@ -220,7 +210,6 @@ export const App: React.FC = () => {
     setUndoStack((prev) => [...prev, currentSnapshot]);
     setRedoStack((prev) => prev.slice(0, -1));
 
-    setBoardMode(nextSnap.boardMode);
     setBoard(nextSnap.board);
     setManualMaxStar(nextSnap.manualMaxStar);
     setCurrentPiece(nextSnap.currentPiece);
@@ -230,7 +219,6 @@ export const App: React.FC = () => {
     setLastAmbiguousContext(null);
   }, [
     redoStack,
-    boardMode,
     board,
     manualMaxStar,
     currentPiece,
@@ -270,7 +258,6 @@ export const App: React.FC = () => {
   const handleLoadPreset = useCallback(
     (preset: PresetScenario) => {
       pushHistory();
-      setBoardMode(preset.boardMode);
       setBoard(buildBoardFromPreset(preset));
       setManualMaxStar(null);
       setCurrentPiece({
@@ -293,7 +280,6 @@ export const App: React.FC = () => {
   // Share State via URL Hash & Clipboard
   const handleShareState = useCallback(() => {
     const hash = encodeStateToHash({
-      boardMode,
       maxUnlockedStar: effectiveMaxStar,
       board,
       currentPiece,
@@ -307,7 +293,6 @@ export const App: React.FC = () => {
     setToastMessage('Shareable board state URL copied to clipboard & address bar!');
     setTimeout(() => setToastMessage(null), 3500);
   }, [
-    boardMode,
     effectiveMaxStar,
     board,
     currentPiece,
@@ -317,10 +302,10 @@ export const App: React.FC = () => {
 
   // Compute Live Board Health KPIs
   const emptyCellsCount = useMemo(
-    () => countEmptyCells(board, boardMode),
-    [board, boardMode]
+    () => countEmptyCells(board),
+    [board]
   );
-  const totalPlayableCells = boardMode === '23-cell' ? 23 : 25;
+  const totalPlayableCells = 23;
 
   const stragglers = useMemo(() => {
     const queueStars = [
@@ -330,21 +315,19 @@ export const App: React.FC = () => {
     return analyzeBoardStragglers(
       board,
       effectiveMaxStar,
-      boardMode,
       queueStars
     );
   }, [
     board,
     effectiveMaxStar,
-    boardMode,
     currentPiece.tileStars,
     nextPiece.tileStars,
     nextPieceKnown,
   ]);
 
   const shapeMobility = useMemo(
-    () => analyzeShapeMobility(board, boardMode),
-    [board, boardMode]
+    () => analyzeShapeMobility(board),
+    [board]
   );
 
   // Run 2-Ply Solver
@@ -355,7 +338,6 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      boardMode,
       landingOverrides,
       fiveTileSuperMerge
     );
@@ -365,7 +347,6 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    boardMode,
     landingOverrides,
     fiveTileSuperMerge,
   ]);
@@ -482,7 +463,6 @@ export const App: React.FC = () => {
       lastAmbiguousContext.preMoveBoard,
       lastAmbiguousContext.preMoveMaxStar,
       lastAmbiguousContext.placedTiles,
-      boardMode,
       nextTarget,
       fiveTileSuperMerge
     );
@@ -496,7 +476,7 @@ export const App: React.FC = () => {
       currentLandingCell: nextTarget,
       mergedStar: reSim.nextBoard[nextTarget],
     });
-  }, [lastAmbiguousContext, boardMode, fiveTileSuperMerge, manualMaxStar]);
+  }, [lastAmbiguousContext, fiveTileSuperMerge, manualMaxStar]);
 
   // Apply +1★ Lucky Evolution (or -1★ Step Down) on the merged landing cell
   const handlePostMoveStarAdjust = useCallback(
@@ -506,8 +486,7 @@ export const App: React.FC = () => {
         board,
         effectiveMaxStar,
         lastAmbiguousContext.currentLandingCell,
-        delta,
-        boardMode
+        delta
       );
       setBoard(res.nextBoard);
       if (manualMaxStar !== null && res.nextMaxStar > manualMaxStar) {
@@ -518,7 +497,7 @@ export const App: React.FC = () => {
         mergedStar: res.finalStar,
       });
     },
-    [lastAmbiguousContext, board, effectiveMaxStar, boardMode, manualMaxStar]
+    [lastAmbiguousContext, board, effectiveMaxStar, manualMaxStar]
   );
 
   const activePreset = useMemo(
@@ -530,11 +509,6 @@ export const App: React.FC = () => {
     <div className="min-h-screen bg-[#0B0C10] text-slate-100 flex flex-col">
       {/* Top Header & 10-Slot Relic Progression Bar */}
       <TopProgressionHeader
-        boardMode={boardMode}
-        onToggleBoardMode={(mode) => {
-          pushHistory();
-          setBoardMode(mode);
-        }}
         fiveTileSuperMerge={fiveTileSuperMerge}
         onToggleFiveTileSuperMerge={setFiveTileSuperMerge}
         maxUnlockedStar={effectiveMaxStar}
@@ -696,7 +670,6 @@ export const App: React.FC = () => {
           <div className="md:col-span-7">
             <HoneycombBoard
               board={board}
-              boardMode={boardMode}
               maxUnlockedStar={effectiveMaxStar}
               stragglers={stragglers}
               activeBrush={activeBrush}

@@ -1,5 +1,3 @@
-export type BoardMode = '23-cell' | '25-cell';
-
 export type PieceShapeId =
   | 'single'
   | 'pair'
@@ -138,7 +136,6 @@ export interface PresetScenario {
   subtitle: string;
   description: string;
   videoTimestamp: string;
-  boardMode: BoardMode;
   maxUnlockedStar: number;
   boardCells: { col: number; row: number; star: number }[];
   currentPiece: PieceConfig;

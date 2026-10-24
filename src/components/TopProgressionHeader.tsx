@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Flame,
-  Grid,
   Lock,
   Redo2,
   RotateCcw,
@@ -14,12 +13,10 @@ import {
 } from 'lucide-react';
 import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
 import { PRESET_SCENARIOS } from '../domain/presets';
-import { BoardMode, PresetScenario, StragglerCellInfo } from '../types/forge';
+import { PresetScenario, StragglerCellInfo } from '../types/forge';
 import { RelicSvgIcon } from './RelicTileVisual';
 
 interface TopProgressionHeaderProps {
-  boardMode: BoardMode;
-  onToggleBoardMode: (mode: BoardMode) => void;
   fiveTileSuperMerge: boolean;
   onToggleFiveTileSuperMerge: (enabled: boolean) => void;
   maxUnlockedStar: number;
@@ -43,8 +40,6 @@ interface TopProgressionHeaderProps {
 }
 
 export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
-  boardMode,
-  onToggleBoardMode,
   fiveTileSuperMerge,
   onToggleFiveTileSuperMerge,
   maxUnlockedStar,
@@ -98,36 +93,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
             </div>
           </div>
 
-          {/* Right Controls: Layout Mode, Scenario Loader, History */}
+          {/* Right Controls: Scenario Loader, History, Merge Rules */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Board Layout Toggle */}
-            <div className="inline-flex items-center rounded-lg bg-[#0D0F17] p-1 border border-[#293044]">
-              <button
-                type="button"
-                onClick={() => onToggleBoardMode('23-cell')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  boardMode === '23-cell'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Authentic in-game 5-4-5-4-5 staggered layout (23 cells)"
-              >
-                <Grid className="w-3.5 h-3.5" />
-                <span>23-Cell Authentic (5-4-5-4-5)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onToggleBoardMode('25-cell')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  boardMode === '25-cell'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Full 5x5 staggered layout (25 cells)"
-              >
-                25-Cell Full (5×5)
-              </button>
-            </div>
 
             {/* 5+ Tile Super Merge Rule Toggle */}
             <button

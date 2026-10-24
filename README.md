@@ -19,9 +19,8 @@
 
 ## ✨ Features
 
-- **⬡ Authentic Honeycomb Board Layouts**
-  - Staggered column coordinate system (even/odd offset grid) matching the in-game forge.
-  - Supports both **23-cell Standard** (E1 and E5 locked) and **25-cell Unlocked** board modes.
+- **⬡ Authentic 23-Cell Honeycomb Board**
+  - Staggered column coordinate system (even/odd offset grid) matching the in-game forge (5-4-5-4-5 layout across columns A–E).
   - Interactive cell editor with paintbrush star assignment (1★–10★), eraser, and cell inspector.
 
 - **🔄 Polyomino Piece Composer with 60° Hexagonal Rotation**

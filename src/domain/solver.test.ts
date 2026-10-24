@@ -19,7 +19,7 @@ import { solveBestMoves } from './solver';
 describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
   it('1. Honeycomb Adjacency Verification: Even and Odd column 6-neighbor lookup matches Section 2.1', () => {
     // Even Column: Col 2, Row 2
-    const evenNeighbors = getDirectionalNeighbors(2, 2, '23-cell');
+    const evenNeighbors = getDirectionalNeighbors(2, 2);
     expect(evenNeighbors).toHaveLength(6);
     const evenByDir = Object.fromEntries(
       evenNeighbors.map((n) => [n.dir, [n.col, n.row]])
@@ -32,7 +32,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     expect(evenByDir.SE).toEqual([3, 2]);
 
     // Odd Column: Col 1, Row 1
-    const oddNeighbors = getDirectionalNeighbors(1, 1, '23-cell');
+    const oddNeighbors = getDirectionalNeighbors(1, 1);
     expect(oddNeighbors).toHaveLength(6);
     const oddByDir = Object.fromEntries(
       oddNeighbors.map((n) => [n.dir, [n.col, n.row]])
@@ -77,8 +77,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       4,
       [2, 2, 3],
       2,
-      1,
-      '23-cell'
+      1
     );
     expect(placed).not.toBeNull();
     expect(placed!.map((p) => [p.col, p.row, p.star])).toEqual([
@@ -87,7 +86,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       [2, 0, 3],
     ]);
 
-    const sim = simulatePlacement(board, 5, placed!, '23-cell');
+    const sim = simulatePlacement(board, 5, placed!);
     expect(sim.maxChainDepth).toBeGreaterThanOrEqual(2);
     expect(sim.merges[0].fromStar).toBe(2);
     expect(sim.merges[0].toStar).toBe(3);
@@ -106,8 +105,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       scenario3.maxUnlockedStar,
       scenario3.currentPiece,
       scenario3.nextPiece,
-      true,
-      '23-cell'
+      true
     );
 
     expect(result.topRecommendations.length).toBeGreaterThan(0);
@@ -135,8 +133,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       scenario2.maxUnlockedStar,
       { ...scenario2.currentPiece, rotation: 0 },
       scenario2.nextPiece,
-      true,
-      '23-cell'
+      true
     );
 
     const resRot3 = solveBestMoves(
@@ -144,8 +141,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       scenario2.maxUnlockedStar,
       { ...scenario2.currentPiece, rotation: 3 },
       scenario2.nextPiece,
-      true,
-      '23-cell'
+      true
     );
 
     expect(resRot0.topRecommendations[0].totalScore).toBe(
@@ -165,8 +161,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       4,
       { shapeId: 'single', rotation: 0, tileStars: [1] },
       { shapeId: 'bent3', rotation: 0, tileStars: [1, 2, 2] },
-      true,
-      '23-cell'
+      true
     );
 
     const best = res.topRecommendations[0];
@@ -180,7 +175,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     );
     expect(e1Move).toBeDefined();
     expect(
-      e1Move!.warnings.some((w) => w.includes('0 open neighbor spots'))
+      e1Move!.warnings.some((w) => w.includes('0 open neighbor spots') || w.includes('Walled-In'))
     ).toBe(true);
     expect(best.totalScore).toBeGreaterThan(e1Move!.totalScore + 2000);
   });
@@ -203,7 +198,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       { tileIndex: 2, col: 2, row: 4, cellIndex: cellToIndex(2, 4), star: 3 }, // C5
     ];
 
-    const sim = simulatePlacement(board, 4, placed, '23-cell');
+    const sim = simulatePlacement(board, 4, placed);
 
     // The 2★ merge (A4 + B4 + C4) MUST land at B4 (1,3), NOT C4 (2,3)!
     expect(sim.merges).toHaveLength(1);
@@ -220,8 +215,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       0,
       [1, 2, 3],
       2,
-      1,
-      '23-cell'
+      1
     );
     expect(chevronCells).not.toBeNull();
     expect(chevronCells!.map((c) => [c.col, c.row])).toEqual([
@@ -245,20 +239,19 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       { tileIndex: 2, col: 2, row: 4, cellIndex: cellToIndex(2, 4), star: 1 }, // C5
     ];
 
-    const simSuper = simulatePlacement(board, 4, placed, '23-cell', undefined, true);
+    const simSuper = simulatePlacement(board, 4, placed, undefined, true);
     expect(simSuper.merges[0].fromStar).toBe(1);
     expect(simSuper.merges[0].toStar).toBe(3); // 5× 1★ -> 3★ (+2★ jump!)
     expect(simSuper.merges[0].landingCell).toBe(cellToIndex(1, 3)); // Lands at B4!
 
     // Also test +1★ Lucky Evolution helper on a standard +1★ merge
-    const simStd = simulatePlacement(board, 4, placed, '23-cell', undefined, false);
+    const simStd = simulatePlacement(board, 4, placed, undefined, false);
     expect(simStd.merges[0].toStar).toBe(2);
     const lucky = applyPostMergeStarAdjustment(
       simStd.nextBoard,
       4,
       cellToIndex(1, 3),
-      1,
-      '23-cell'
+      1
     );
     expect(lucky.finalStar).toBe(3);
   });
@@ -284,8 +277,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       4,
       { shapeId: 'pair', rotation: 0, tileStars: [3, 2] },
       { shapeId: 'pair', rotation: 0, tileStars: [2, 3] },
-      true,
-      '23-cell'
+      true
     );
 
     const best = res.topRecommendations[0];
@@ -296,7 +288,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     const cloggedBoard = new Uint8Array([
       1, 1, 0, 4, 4, 4, 4, 2, 3, 0, 0, 2, 0, 4, 0, 4, 4, 0, 0, 0, 0, 0, 0, 4, 0,
     ]);
-    const mob = analyzeShapeMobility(cloggedBoard, '23-cell');
+    const mob = analyzeShapeMobility(cloggedBoard);
     expect(mob.compact3TriangleSlots).toBe(0);
     expect(mob.vulnerableShapes).toContain('3-Triangle (0 fits!)');
   });
@@ -324,7 +316,7 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
       { tileIndex: 2, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 4 }, // C4
     ];
 
-    const sim = simulatePlacement(board, 6, placed, '23-cell');
+    const sim = simulatePlacement(board, 6, placed);
     expect(sim.merges).toHaveLength(2);
     expect(sim.merges[0].fromStar).toBe(4);
     expect(sim.merges[0].toStar).toBe(5);

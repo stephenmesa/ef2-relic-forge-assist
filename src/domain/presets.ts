@@ -1,4 +1,4 @@
-import { BoardMode, PresetScenario } from '../types/forge';
+import { PresetScenario } from '../types/forge';
 import { cellToIndex } from './honeycomb';
 
 export const PRESET_SCENARIOS: PresetScenario[] = [
@@ -9,7 +9,6 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
     videoTimestamp: '00:00',
     description:
       'Early-mid game board where two 4★ Hammers are primed on the upper-left perimeter and all 1★ Daggers have already been cleared. Placing the [4★, 3★] pair unlocks your first 5★ Flame Blade cleanly while setting up a 3★ pair for the upcoming [2★, 3★, 2★] Bent-3 piece.',
-    boardMode: '23-cell',
     maxUnlockedStar: 4,
     boardCells: [
       { col: 0, row: 0, star: 4 },
@@ -39,7 +38,6 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
     videoTimestamp: '00:13',
     description:
       'Authentic board state from 00:12 of gameplay. Placing the Bent-3 [2★, 2★, 3★] piece with vertex T0 (2★) at C2 (Col 2, Row 1), T1 (2★) at B2 (Col 1, Row 1), and T2 (3★) at C1 (Col 2, Row 0) merges the 2★ group onto C2, which immediately bridges T2 (3★) and existing 3★ neighbors to cascade into 4★!',
-    boardMode: '23-cell',
     maxUnlockedStar: 5,
     boardCells: [
       { col: 0, row: 0, star: 5 },
@@ -70,7 +68,6 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
     videoTimestamp: '00:32',
     description:
       'High-stakes window shift from 00:32! Placing [4★, 2★] at B2 (1,1) triggers a 4★ → 5★ → 6★ cascade that unlocks 6★ and permanently retires 2★. Rotating [4★, 2★] SE toward C3 (2,2) connects with the 2★ at D3 (3,2) so Next Piece [2★, 3★] rescues all 2★ stragglers—whereas rotating SW to A3 (0,2) traps 2× 2★ as permanent dead space!',
-    boardMode: '23-cell',
     maxUnlockedStar: 5,
     boardCells: [
       { col: 0, row: 0, star: 5 },
@@ -108,7 +105,6 @@ export function buildBoardFromPreset(preset: PresetScenario): Uint8Array {
 }
 
 export function encodeStateToHash(state: {
-  boardMode: BoardMode;
   maxUnlockedStar: number;
   board: Uint8Array;
   currentPiece: PresetScenario['currentPiece'];
@@ -116,7 +112,6 @@ export function encodeStateToHash(state: {
   nextPieceKnown: boolean;
 }): string {
   const payload = {
-    m: state.boardMode === '23-cell' ? 23 : 25,
     u: state.maxUnlockedStar,
     b: Array.from(state.board),
     c: [
@@ -135,7 +130,6 @@ export function encodeStateToHash(state: {
 }
 
 export function decodeStateFromHash(hashStr: string): {
-  boardMode: BoardMode;
   maxUnlockedStar: number;
   board: Uint8Array;
   currentPiece: PresetScenario['currentPiece'];
@@ -150,7 +144,6 @@ export function decodeStateFromHash(hashStr: string): {
       return null;
     }
     return {
-      boardMode: parsed.m === 25 ? '25-cell' : '23-cell',
       maxUnlockedStar: Math.max(4, Math.min(10, Number(parsed.u) || 4)),
       board: new Uint8Array(parsed.b.map((v: number) => Math.max(0, Math.min(10, Number(v) || 0)))),
       currentPiece: {

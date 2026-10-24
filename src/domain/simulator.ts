@@ -1,6 +1,5 @@
 import {
   AmbiguousMergeInfo,
-  BoardMode,
   MergeStep,
   PlacedTile,
   SimulationResult,
@@ -194,11 +193,10 @@ export function simulatePlacement(
   board: Uint8Array,
   maxUnlockedStar: number,
   placedTiles: PlacedTile[],
-  mode: BoardMode,
   preferredLandingCell?: number,
   fiveTileSuperMerge: boolean = true
 ): SimulationResult {
-  const neighborsTable = getPrecomputedNeighbors(mode);
+  const neighborsTable = getPrecomputedNeighbors();
   const prePlacementBoard = new Uint8Array(board);
   const nextBoard = new Uint8Array(board);
 
@@ -320,7 +318,7 @@ export function simulatePlacement(
   }
 
   let nextMaxStar = Math.max(4, maxUnlockedStar);
-  const validIndices = getValidCellIndices(mode);
+  const validIndices = getValidCellIndices();
   for (const idx of validIndices) {
     if (nextBoard[idx] > nextMaxStar) {
       nextMaxStar = nextBoard[idx];
@@ -362,10 +360,9 @@ export function applyPostMergeStarAdjustment(
   board: Uint8Array,
   maxUnlockedStar: number,
   landingCell: number,
-  deltaStar: 1 | -1,
-  mode: BoardMode
+  deltaStar: 1 | -1
 ): { nextBoard: Uint8Array; nextMaxStar: number; finalStar: number } {
-  const neighborsTable = getPrecomputedNeighbors(mode);
+  const neighborsTable = getPrecomputedNeighbors();
   const nextBoard = new Uint8Array(board);
   const currentStar = nextBoard[landingCell];
   if (currentStar === 0) {
@@ -391,7 +388,7 @@ export function applyPostMergeStarAdjustment(
   }
 
   let nextMaxStar = Math.max(4, maxUnlockedStar);
-  const validIndices = getValidCellIndices(mode);
+  const validIndices = getValidCellIndices();
   for (const idx of validIndices) {
     if (nextBoard[idx] > nextMaxStar) {
       nextMaxStar = nextBoard[idx];
@@ -406,10 +403,10 @@ export function applyPostMergeStarAdjustment(
 }
 
 /**
- * Counts empty cells on the board for the given mode.
+ * Counts empty cells on the board.
  */
-export function countEmptyCells(board: Uint8Array, mode: BoardMode): number {
-  const valid = getValidCellIndices(mode);
+export function countEmptyCells(board: Uint8Array): number {
+  const valid = getValidCellIndices();
   let empty = 0;
   for (let i = 0; i < valid.length; i++) {
     if (board[valid[i]] === 0) empty++;
@@ -432,10 +429,9 @@ export interface ShapeMobilityBreakdown {
  * vulnerable to becoming unplayable for specific piece shapes (especially 3-Triangle!).
  */
 export function analyzeShapeMobility(
-  board: Uint8Array,
-  mode: BoardMode
+  board: Uint8Array
 ): ShapeMobilityBreakdown {
-  const validIndices = getValidCellIndices(mode);
+  const validIndices = getValidCellIndices();
   const dummy3 = [1, 1, 1];
   const dummy2 = [1, 1];
 
@@ -448,7 +444,7 @@ export function analyzeShapeMobility(
   for (let rot = 0; rot < 3; rot++) {
     for (let i = 0; i < validIndices.length; i++) {
       const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('line3', rot, dummy3, col, row, mode);
+      const cells = resolvePiecePlacement('line3', rot, dummy3, col, row);
       if (
         cells &&
         board[cells[0].cellIndex] === 0 &&
@@ -464,7 +460,7 @@ export function analyzeShapeMobility(
   for (let rot = 0; rot < 6; rot++) {
     for (let i = 0; i < validIndices.length; i++) {
       const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('bent3', rot, dummy3, col, row, mode);
+      const cells = resolvePiecePlacement('bent3', rot, dummy3, col, row);
       if (
         cells &&
         board[cells[0].cellIndex] === 0 &&
@@ -485,8 +481,7 @@ export function analyzeShapeMobility(
         rot,
         dummy3,
         col,
-        row,
-        mode
+        row
       );
       if (
         cells &&
@@ -503,7 +498,7 @@ export function analyzeShapeMobility(
   for (let rot = 0; rot < 3; rot++) {
     for (let i = 0; i < validIndices.length; i++) {
       const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('pair', rot, dummy2, col, row, mode);
+      const cells = resolvePiecePlacement('pair', rot, dummy2, col, row);
       if (
         cells &&
         board[cells[0].cellIndex] === 0 &&
@@ -542,8 +537,8 @@ export function analyzeShapeMobility(
  * Counts how many valid placement slots exist on `board` for standard 3-tile pieces
  * (`line3`, `bent3`, and `compact3`).
  */
-export function countThreeTileMobility(board: Uint8Array, mode: BoardMode): number {
-  return analyzeShapeMobility(board, mode).totalThreeTileSlots;
+export function countThreeTileMobility(board: Uint8Array): number {
+  return analyzeShapeMobility(board).totalThreeTileSlots;
 }
 
 /**
@@ -553,11 +548,10 @@ export function countThreeTileMobility(board: Uint8Array, mode: BoardMode): numb
 export function analyzeBoardStragglers(
   board: Uint8Array,
   maxUnlockedStar: number,
-  mode: BoardMode,
   unplacedQueueStars: number[] = []
 ): StragglerCellInfo[] {
-  const validIndices = getValidCellIndices(mode);
-  const neighborsTable = getPrecomputedNeighbors(mode);
+  const validIndices = getValidCellIndices();
+  const neighborsTable = getPrecomputedNeighbors();
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
 
   // Count how many tiles of each star exist in the unplaced piece queue (Current + Next piece)

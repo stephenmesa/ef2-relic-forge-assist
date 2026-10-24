@@ -18,7 +18,6 @@ import {
   getDirectionalNeighbors,
 } from '../domain/honeycomb';
 import {
-  BoardMode,
   CandidateMove,
   StragglerCellInfo,
 } from '../types/forge';
@@ -26,7 +25,6 @@ import { RelicTileVisual } from './RelicTileVisual';
 
 interface HoneycombBoardProps {
   board: Uint8Array;
-  boardMode: BoardMode;
   maxUnlockedStar: number;
   stragglers: StragglerCellInfo[];
   activeBrush: number | 'inspect' | 'popover'; // 0 = eraser, 1..10 = paint star, 'inspect' = inspect neighbors, 'popover' = click picker
@@ -41,7 +39,6 @@ interface HoneycombBoardProps {
 
 export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
   board,
-  boardMode,
   maxUnlockedStar,
   stragglers,
   activeBrush,
@@ -165,8 +162,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
   if (hoveredCell && (activeBrush === 'inspect' || alwaysShowNeighborsOnHover)) {
     const dirs = getDirectionalNeighbors(
       hoveredCell.col,
-      hoveredCell.row,
-      boardMode
+      hoveredCell.row
     );
     for (const d of dirs) {
       hoveredNeighborsMap.set(d.cellIndex, d.dir);
@@ -373,11 +369,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                   Col {col} ({colLetter})
                 </span>
                 <span className="text-[8px] text-slate-500">
-                  {isOdd
-                    ? boardMode === '23-cell'
-                      ? '4r (+0.5↓)'
-                      : '5r (+0.5↓)'
-                    : '5 rows'}
+                  {isOdd ? '4 rows (+0.5↓)' : '5 rows'}
                 </span>
               </div>
             );
@@ -387,7 +379,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
         {/* 5 Columns with Odd Columns Shifted Down by 0.5 * cellHeight via 50% width-ratio spacer */}
         <div className="grid grid-cols-5 gap-1.5 sm:gap-2 items-start pb-2">
           {[0, 1, 2, 3, 4].map((col) => {
-            const rowCount = getColumnRowCount(col, boardMode);
+            const rowCount = getColumnRowCount(col);
             const isOdd = col % 2 === 1;
 
             return (
@@ -613,8 +605,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                 {hoveredCell.col},{hoveredCell.row}) Neighbors:{' '}
                 {getDirectionalNeighbors(
                   hoveredCell.col,
-                  hoveredCell.row,
-                  boardMode
+                  hoveredCell.row
                 )
                   .map((n) => `${n.dir}:${formatCellCoord(n.col, n.row)}`)
                   .join(' ')}

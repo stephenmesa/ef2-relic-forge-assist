@@ -1,5 +1,4 @@
 import {
-  BoardMode,
   CandidateMove,
   PieceConfig,
   PlacedTile,
@@ -37,10 +36,9 @@ interface RawPlacement {
  */
 export function generateValidPlacements(
   board: Uint8Array,
-  piece: PieceConfig,
-  mode: BoardMode
+  piece: PieceConfig
 ): RawPlacement[] {
-  const validIndices = getValidCellIndices(mode);
+  const validIndices = getValidCellIndices();
   const bySignature = new Map<string, RawPlacement>();
 
   // Order rotations by minimum clicks from current composer rotation
@@ -61,8 +59,7 @@ export function generateValidPlacements(
         rot,
         piece.tileStars,
         col,
-        row,
-        mode
+        row
       );
       if (!resolved) continue;
 
@@ -159,10 +156,9 @@ export function evaluateTransitionReward(
  */
 function findWalledInPlacedTiles(
   boardAfterPly1: Uint8Array,
-  placedTiles: PlacedTile[],
-  mode: BoardMode
+  placedTiles: PlacedTile[]
 ): { cellIndex: number; star: number }[] {
-  const neighborsTable = getPrecomputedNeighbors(mode);
+  const neighborsTable = getPrecomputedNeighbors();
   const walledIn: { cellIndex: number; star: number }[] = [];
   const visited = new Uint8Array(25);
 
@@ -202,7 +198,6 @@ function findWalledInPlacedTiles(
 export function evaluateBoardState(
   board: Uint8Array,
   maxUnlockedStar: number,
-  mode: BoardMode,
   initialBoard: Uint8Array,
   initialMaxStar: number
 ): {
@@ -226,8 +221,8 @@ export function evaluateBoardState(
   compact3TriangleSlots: number;
   totalThreeTileSlots: number;
 } {
-  const validIndices = getValidCellIndices(mode);
-  const neighborsTable = getPrecomputedNeighbors(mode);
+  const validIndices = getValidCellIndices();
+  const neighborsTable = getPrecomputedNeighbors();
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
   const initialMinActive = getMinActiveSpawnStar(initialMaxStar);
 
@@ -299,7 +294,7 @@ export function evaluateBoardState(
 
   const stragglerRescueBonus = 3500 * rescuedStragglersCount;
   // Additional gentle caution penalty only when trapping 2+ newly retired tiles while board still has plenty of room
-  const emptyCells = countEmptyCells(board, mode);
+  const emptyCells = countEmptyCells(board);
   const prematureTierUpPenalty =
     trappedRetiredCount >= 2 && emptyCells >= 14
       ? -600 * (trappedRetiredCount - 1)
@@ -312,7 +307,7 @@ export function evaluateBoardState(
     emptySpaceScore -= deficit * deficit * 120;
   }
 
-  const shapeMob = analyzeShapeMobility(board, mode);
+  const shapeMob = analyzeShapeMobility(board);
   const cappedMobility = Math.min(28, shapeMob.totalThreeTileSlots);
   const excessMobility = Math.max(0, shapeMob.totalThreeTileSlots - 28);
   const mobilityScore =
@@ -490,7 +485,7 @@ export function evaluateBoardState(
       (islandsByStar.get(star)?.length ?? 0) === 1
     ) {
       const { col, row } = indexToCoord(idx);
-      const maxRow = getColumnRowCount(col, mode) - 1;
+      const maxRow = getColumnRowCount(col) - 1;
       const isPerimeter = col === 0 || col === 4 || row === 0 || row === maxRow;
       const isCenterHub = col === 2 && row === 2;
       if (isPerimeter) {
@@ -584,7 +579,6 @@ export function solveBestMoves(
   currentPiece: PieceConfig,
   nextPiece: PieceConfig,
   nextPieceKnown: boolean,
-  mode: BoardMode,
   landingOverrides?: Record<string, number>,
   fiveTileSuperMerge: boolean = true
 ): {
@@ -594,8 +588,8 @@ export function solveBestMoves(
   elapsedMs: number;
 } {
   const startTime = performance.now();
-  const emptyCellsBefore = countEmptyCells(board, mode);
-  const ply1Placements = generateValidPlacements(board, currentPiece, mode);
+  const emptyCellsBefore = countEmptyCells(board);
+  const ply1Placements = generateValidPlacements(board, currentPiece);
 
   const candidates: CandidateMove[] = [];
 
@@ -607,7 +601,6 @@ export function solveBestMoves(
       board,
       maxUnlockedStar,
       p1.placedTiles,
-      mode,
       preferredLanding,
       fiveTileSuperMerge
     );
@@ -615,12 +608,11 @@ export function solveBestMoves(
     const ply1Trans = evaluateTransitionReward(board, maxUnlockedStar, ply1Sim);
     const ply1WalledIn = findWalledInPlacedTiles(
       ply1Sim.nextBoard,
-      p1.placedTiles,
-      mode
+      p1.placedTiles
     );
     const ply1ImmediateTrapPenalty = ply1WalledIn.length * -1200;
 
-    const emptyCellsAfterPly1 = countEmptyCells(ply1Sim.nextBoard, mode);
+    const emptyCellsAfterPly1 = countEmptyCells(ply1Sim.nextBoard);
 
     let bestPly2: Ply2Continuation | null = null;
     let isLethal = false;
@@ -629,7 +621,6 @@ export function solveBestMoves(
     let terminalEval = evaluateBoardState(
       ply1Sim.nextBoard,
       ply1Sim.nextMaxStar,
-      mode,
       board,
       maxUnlockedStar
     );
@@ -639,8 +630,7 @@ export function solveBestMoves(
     if (nextPieceKnown) {
       const ply2Placements = generateValidPlacements(
         ply1Sim.nextBoard,
-        nextPiece,
-        mode
+        nextPiece
       );
 
       if (ply2Placements.length === 0) {
@@ -657,7 +647,6 @@ export function solveBestMoves(
             ply1Sim.nextBoard,
             ply1Sim.nextMaxStar,
             p2.placedTiles,
-            mode,
             undefined,
             fiveTileSuperMerge
           );
@@ -669,7 +658,6 @@ export function solveBestMoves(
           const boardEval = evaluateBoardState(
             ply2Sim.nextBoard,
             ply2Sim.nextMaxStar,
-            mode,
             board,
             maxUnlockedStar
           );
@@ -709,7 +697,7 @@ export function solveBestMoves(
         totalScore =
           ply1Trans.score + ply1ImmediateTrapPenalty + ply2ContinuationScore;
         terminalEval = bestPly2Eval;
-        emptyCellsAfterPly2 = countEmptyCells(bestPly2!.sim.nextBoard, mode);
+        emptyCellsAfterPly2 = countEmptyCells(bestPly2!.sim.nextBoard);
         threeTileMobilityAfter = terminalEval.totalThreeTileSlots;
       }
     } else {

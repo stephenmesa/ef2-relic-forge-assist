@@ -14,7 +14,7 @@ import {
 import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
 import { PRESET_SCENARIOS } from '../domain/presets';
 import { PresetScenario, StragglerCellInfo } from '../types/forge';
-import { RelicSvgIcon } from './RelicTileVisual';
+import { getRelicSwatchStyle, RelicSvgIcon } from './RelicTileVisual';
 
 interface TopProgressionHeaderProps {
   fiveTileSuperMerge: boolean;
@@ -246,8 +246,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                     {/* Top Zone Badge */}
                     <div className="w-full flex items-center justify-between text-[10px] font-bold leading-none mb-1">
                       <span
-                        className="px-1 py-0.5 rounded text-white font-black"
-                        style={{ backgroundColor: spec.bgHex }}
+                        className="px-1 py-0.5 rounded text-white font-black drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)]"
+                        style={getRelicSwatchStyle(star)}
                       >
                         {star}★
                       </span>

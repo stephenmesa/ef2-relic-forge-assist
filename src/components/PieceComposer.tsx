@@ -18,7 +18,7 @@ import {
   getRotatedPieceCubeOffsets,
 } from '../domain/honeycomb';
 import { PieceConfig, PieceShapeId } from '../types/forge';
-import { RelicTileVisual } from './RelicTileVisual';
+import { getRelicSwatchStyle, RelicTileVisual } from './RelicTileVisual';
 
 interface MiniPiecePreviewProps {
   piece: PieceConfig;
@@ -362,8 +362,8 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
                 >
                   <span>T{idx}:</span>
                   <span
-                    className="px-1 rounded text-white font-black text-[10px]"
-                    style={{ backgroundColor: RELIC_SPECS[star]?.bgHex }}
+                    className="px-1 rounded text-white font-black text-[10px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+                    style={getRelicSwatchStyle(star)}
                   >
                     {star}★
                   </span>
@@ -388,9 +388,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
               type="button"
               onClick={() => handleSetTileStar(safeSelectedIdx, legacyBoundaryStar)}
               className="px-2 py-1 rounded-md text-[11px] font-black text-white border border-dashed border-rose-400 flex items-center gap-1 hover:scale-105 transition-transform"
-              style={{
-                backgroundColor: RELIC_SPECS[legacyBoundaryStar].bgHex,
-              }}
+              style={getRelicSwatchStyle(legacyBoundaryStar)}
               title={`Retired Boundary Tier ${legacyBoundaryStar}★ (Still in Next Piece Preview after tier-up)`}
             >
               <span>{legacyBoundaryStar}★</span>
@@ -399,7 +397,6 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
 
           {(showAllStars ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : activePool).map(
             (star) => {
-              const spec = RELIC_SPECS[star];
               const isCurrentTileStar = piece.tileStars[safeSelectedIdx] === star;
               return (
                 <button
@@ -411,12 +408,11 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
                       ? 'ring-2 ring-amber-300 scale-105 shadow'
                       : ' opacity-90 hover:opacity-100 hover:scale-[1.02]'
                   }`}
-                  style={{
-                    backgroundColor: spec.bgHex,
-                    borderColor: spec.borderHex,
-                  }}
+                  style={getRelicSwatchStyle(star, {
+                    isSelected: isCurrentTileStar,
+                  })}
                 >
-                  <span>{star}★</span>
+                  <span className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.85)]">{star}★</span>
                 </button>
               );
             }

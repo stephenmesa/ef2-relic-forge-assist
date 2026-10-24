@@ -21,7 +21,7 @@ import {
   CandidateMove,
   StragglerCellInfo,
 } from '../types/forge';
-import { RelicTileVisual } from './RelicTileVisual';
+import { getRelicSwatchStyle, RelicTileVisual } from './RelicTileVisual';
 
 interface HoneycombBoardProps {
   board: Uint8Array;
@@ -304,8 +304,10 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                     : 'hover:scale-[1.03] text-white/95'
                 }`}
                 style={{
-                  backgroundColor: isSelected ? spec.bgHex : `${spec.bgHex}CC`,
-                  borderColor: isSelected ? '#FDE68A' : spec.borderHex,
+                  ...getRelicSwatchStyle(star, {
+                    isSelected,
+                    dimmed: !isSelected,
+                  }),
                   opacity: isRetired && !isSelected ? 0.65 : 1,
                 }}
                 title={`Paint ${star}★ (${spec.name}) — Shortcut: ${star === 10 ? '0' : star}`}
@@ -563,7 +565,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                               }}
                               className="py-1 rounded text-[11px] font-black text-white hover:scale-105 transition-transform"
                               style={{
-                                backgroundColor: RELIC_SPECS[s].bgHex,
+                                ...getRelicSwatchStyle(s),
                                 border: `1px solid ${RELIC_SPECS[s].borderHex}`,
                               }}
                             >

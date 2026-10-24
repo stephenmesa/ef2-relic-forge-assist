@@ -450,44 +450,70 @@ export const RelicSvgIcon: React.FC<{ star: number; className?: string }> = ({
     case 9: // 9★: Celestial Winged Golden Battleaxe
       return (
         <svg viewBox="0 0 36 36" fill="none" className={className}>
-          {/* White Feathered Angel Wings */}
+          {/* Upper-Right & Upper-Left Feathered Golden-White Wings */}
           <path
-            d="M17,14 C11,7 5,8 4,15 C8,16 11,18 14,20 Z M19,14 C25,7 31,8 32,15 C28,16 25,18 22,20 Z"
+            d="M17,14 C12,7 5,7 4,14 C8,15 11,17 14,19 Z M19,14 C25,6 32,7 32,15 C28,16 25,18 21,20 Z"
             fill="#FFFDE7"
             stroke="#1B1B1B"
             strokeWidth="1.8"
             strokeLinejoin="round"
           />
-          {/* Diagonal Axe Handle */}
           <path
-            d="M12,12 L29,29"
-            stroke="#FFB300"
-            strokeWidth="3.8"
-            strokeLinecap="round"
+            d="M19.5,14.5 C24,8.5 29.5,9 30,14 C26.5,14.8 24,16.5 21,18.2 Z"
+            fill="#FFE082"
           />
+          {/* Diagonal Ornate Battleaxe Shaft (Top-Left to Bottom-Right) */}
           <path
-            d="M12,12 L29,29"
+            d="M9,9 L29,29"
             stroke="#1B1B1B"
-            strokeWidth="1.4"
+            strokeWidth="5.4"
             strokeLinecap="round"
           />
-          {/* Golden Crescent Battleaxe Blade */}
           <path
-            d="M15,8 C7,10 5,19 11,25 C14,21 16,18 19,15 Z"
+            d="M9,9 L29,29"
+            stroke="#ECEFF1"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          {/* Gold Pommel & Grip Bands */}
+          <circle
+            cx="29"
+            cy="29"
+            r="2.3"
+            fill="#FFD54F"
+            stroke="#1B1B1B"
+            strokeWidth="1.5"
+          />
+          <circle
+            cx="9"
+            cy="9"
+            r="2.2"
+            fill="#FFD54F"
+            stroke="#1B1B1B"
+            strokeWidth="1.5"
+          />
+          {/* Large Golden Crescent Battleaxe Blade (Lower-Left) */}
+          <path
+            d="M14,9 C6,11 4,20 11,27 C14,26 17,23 16,19 C14,19 12,17 13,14 C15,14 17,13 18,11 Z"
             fill="#FFD54F"
             stroke="#1B1B1B"
             strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Emerald Core Gem */}
-          <circle
-            cx="17"
-            cy="16"
-            r="2.8"
-            fill="#00E676"
-            stroke="#1B1B1B"
-            strokeWidth="1.5"
+          <path
+            d="M12,11.5 C7.5,13.5 6.5,19.5 11,24.5 C12.5,23.5 14,21.5 13.5,19"
+            stroke="#FFF9C4"
+            strokeWidth="1.6"
+            strokeLinecap="round"
           />
+          {/* Royal Purple & Gold Center Crest */}
+          <polygon
+            points="18,12 22,16 18,20 14,16"
+            fill="#AB47BC"
+            stroke="#1B1B1B"
+            strokeWidth="1.6"
+          />
+          <circle cx="18" cy="16" r="1.6" fill="#80DEEA" />
         </svg>
       );
 
@@ -517,6 +543,41 @@ export const RelicSvgIcon: React.FC<{ star: number; className?: string }> = ({
   }
 };
 
+// In-game rainbow background for 9★ (Celestial Winged Battleaxe) & pastel prismatic sheen for 8★
+export const RAINBOW_9_BG_GRADIENT =
+  'conic-gradient(from 310deg at 50% 50%, #E5CE52 0deg, #76CF7C 55deg, #56C6DC 110deg, #6298EA 165deg, #A46AE8 220deg, #DC6AB8 270deg, #E47468 315deg, #E8AC52 342deg, #E5CE52 360deg)';
+
+export const PRISMATIC_8_BG_GRADIENT =
+  'conic-gradient(from 315deg at 50% 50%, #C4A88E 0deg, #98BBA8 65deg, #90B0CE 135deg, #AC98C8 210deg, #C892B0 285deg, #C4A88E 360deg)';
+
+export function getRelicSwatchStyle(
+  star: number,
+  options?: { isSelected?: boolean; dimmed?: boolean }
+): React.CSSProperties {
+  const spec = RELIC_SPECS[star];
+  if (!spec) return {};
+  const isSelected = options?.isSelected ?? false;
+  if (star === 9) {
+    return {
+      backgroundImage: RAINBOW_9_BG_GRADIENT,
+      borderColor: isSelected ? '#FDE68A' : '#E2F8FF',
+      boxShadow: isSelected
+        ? '0 0 10px rgba(128,222,234,0.85)'
+        : '0 0 6px rgba(224,195,252,0.5)',
+    };
+  }
+  if (star === 8) {
+    return {
+      backgroundImage: PRISMATIC_8_BG_GRADIENT,
+      borderColor: isSelected ? '#FDE68A' : spec.borderHex,
+    };
+  }
+  return {
+    backgroundColor: options?.dimmed ? `${spec.bgHex}CC` : spec.bgHex,
+    borderColor: isSelected ? '#FDE68A' : spec.borderHex,
+  };
+}
+
 export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
   star,
   size = 'md',
@@ -545,10 +606,13 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
   // Special holographic / glowing frames for 7★, 8★, 9★, 10★ matching screenshot
   const isCyanGlow7 = star === 7;
   const isPrismatic8 = star === 8;
+  const isRainbow9 = star === 9;
   const isRainbow9Or10 = star >= 9;
 
   const frameShadow = isGhost
     ? undefined
+    : isRainbow9
+    ? '0 0 14px rgba(128,222,234,0.85), 0 0 6px rgba(244,143,177,0.7), inset 0 0 8px rgba(255,255,255,0.65)'
     : isRainbow9Or10
     ? '0 0 12px rgba(128,222,234,0.75), inset 0 0 8px rgba(255,214,236,0.6)'
     : isPrismatic8
@@ -556,6 +620,18 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
     : isCyanGlow7
     ? '0 0 10px rgba(34,211,238,0.6), inset 0 0 5px rgba(125,211,252,0.4)'
     : 'inset 0 2px 5px rgba(255,255,255,0.22), 0 3px 6px rgba(0,0,0,0.5)';
+
+  const tileBackgroundStyle: React.CSSProperties = isRainbow9
+    ? {
+        backgroundImage: RAINBOW_9_BG_GRADIENT,
+      }
+    : isPrismatic8
+    ? {
+        backgroundImage: PRISMATIC_8_BG_GRADIENT,
+      }
+    : {
+        backgroundColor: isGhost ? `${spec.bgHex}CC` : spec.bgHex,
+      };
 
   return (
     <div
@@ -567,7 +643,7 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
           : ''
       } ${className}`}
       style={{
-        backgroundColor: isGhost ? `${spec.bgHex}CC` : spec.bgHex,
+        ...tileBackgroundStyle,
         border: `${isPrismatic8 || isRainbow9Or10 ? '2.5px' : '2px'} ${
           isGhost && ghostStep === 2 ? 'dashed' : 'solid'
         } ${spec.borderHex}`,
@@ -576,18 +652,41 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
     >
       {/* Subtle In-Game Radial Sunburst Rays Background */}
       <div
-        className="absolute inset-0 opacity-20 pointer-events-none"
+        className={`absolute inset-0 ${
+          isRainbow9 ? 'opacity-30' : 'opacity-20'
+        } pointer-events-none`}
         style={{
           backgroundImage:
-            'repeating-conic-gradient(from 0deg, rgba(255,255,255,0.28) 0deg 12deg, transparent 12deg 24deg)',
+            'repeating-conic-gradient(from 0deg, rgba(255,255,255,0.32) 0deg 11.25deg, rgba(0,0,0,0.06) 11.25deg 22.5deg)',
         }}
       />
 
-      {/* Holographic Corner Dots for 8★, 9★, 10★ */}
+      {/* Holographic Corner Pearls for 8★ (2 corners) and 9★/10★ (all 4 corners + top crown) */}
       {(isPrismatic8 || isRainbow9Or10) && size !== 'xs' && (
         <>
-          <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_4px_#fff] pointer-events-none" />
-          <span className="absolute bottom-1.5 right-1 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_4px_#fff] pointer-events-none" />
+          <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-white border border-slate-700/60 shadow-[0_0_4px_#fff] pointer-events-none z-20" />
+          <span className="absolute bottom-1.5 right-1 w-1.5 h-1.5 rounded-full bg-white border border-slate-700/60 shadow-[0_0_4px_#fff] pointer-events-none z-20" />
+          {isRainbow9Or10 && (
+            <>
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-white border border-slate-700/60 shadow-[0_0_4px_#fff] pointer-events-none z-20" />
+              <span className="absolute bottom-1.5 left-1 w-1.5 h-1.5 rounded-full bg-white border border-slate-700/60 shadow-[0_0_4px_#fff] pointer-events-none z-20" />
+              {/* Mini Top-Center Golden Crown Emblem matching 9★ in screenshot */}
+              <svg
+                viewBox="0 0 16 8"
+                className="
+                  absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-2 z-20 pointer-events-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]
+                "
+              >
+                <polygon
+                  points="1,7 2.5,2 5.5,5 8,1 10.5,5 13.5,2 15,7"
+                  fill="#FFD54F"
+                  stroke="#1B1B1B"
+                  strokeWidth="1.2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </>
+          )}
         </>
       )}
 

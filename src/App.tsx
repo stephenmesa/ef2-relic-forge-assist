@@ -489,6 +489,10 @@ export const App: React.FC = () => {
             setActiveBrush(1);
           }
         }}
+        hammerAdvice={hammerAdvice}
+        onUseHammer={handleUseHammer}
+        activeMove={activePreviewMove.move}
+        onApplyActiveMove={handleApplyPly1Move}
         maxUnlockedStar={effectiveMaxStar}
         isManualMaxStar={manualMaxStar !== null}
         onSelectMaxStar={(star) => {

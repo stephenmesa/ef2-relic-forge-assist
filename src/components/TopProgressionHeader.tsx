@@ -5,6 +5,7 @@ import {
   Flame,
   Hammer,
   Lock,
+  Play,
   Redo2,
   RotateCcw,
   Share2,
@@ -15,8 +16,14 @@ import {
   Zap,
 } from 'lucide-react';
 import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
+import { formatCellCoord } from '../domain/honeycomb';
 import { PRESET_SCENARIOS } from '../domain/presets';
-import { PresetScenario, StragglerCellInfo } from '../types/forge';
+import {
+  CandidateMove,
+  HammerAdvice,
+  PresetScenario,
+  StragglerCellInfo,
+} from '../types/forge';
 import { getRelicSwatchStyle, RelicSvgIcon } from './RelicTileVisual';
 
 interface TopProgressionHeaderProps {
@@ -24,6 +31,10 @@ interface TopProgressionHeaderProps {
   onChangeViewMode: (mode: 'simple' | 'advanced') => void;
   hammerAvailable: boolean;
   onToggleHammerAvailable: (available: boolean) => void;
+  hammerAdvice?: HammerAdvice;
+  onUseHammer?: (cellIndex: number) => void;
+  activeMove: CandidateMove | null;
+  onApplyActiveMove: (move: CandidateMove) => void;
   maxUnlockedStar: number;
   isManualMaxStar: boolean;
   onSelectMaxStar: (star: number) => void;
@@ -49,6 +60,10 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   onChangeViewMode,
   hammerAvailable,
   onToggleHammerAvailable,
+  hammerAdvice,
+  onUseHammer,
+  activeMove,
+  onApplyActiveMove,
   maxUnlockedStar,
   isManualMaxStar,
   onSelectMaxStar,
@@ -81,7 +96,7 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   }
 
   return (
-    <header className="bg-[#131620] border-b border-[#293044] shadow-lg">
+    <header className="sticky top-0 z-40 lg:static bg-[#131620]/95 backdrop-blur border-b border-[#293044] shadow-lg">
       <div className="max-w-[1680px] mx-auto px-3 sm:px-5 py-2 space-y-2">
         {/* Top Row: Brand, Simple/Advanced View Toggle, Hammer Status, History */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -103,8 +118,49 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
             </div>
           </div>
 
-          {/* Right Controls: Simple/Advanced View Switch, Hammer Toggle, History */}
+          {/* Right Controls: Quick Apply Move, Simple/Advanced View Switch, Hammer Toggle, History */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* If Hammer Advisor actively recommends smashing now, surface 1-tap Smash button at the top on mobile */}
+            {hammerAvailable &&
+              hammerAdvice?.shouldUseNow &&
+              hammerAdvice.recommendedTarget &&
+              onUseHammer && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUseHammer(hammerAdvice.recommendedTarget!.cellIndex)
+                  }
+                  className="lg:hidden px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md border border-amber-200 transition-all"
+                  title={hammerAdvice.headline}
+                >
+                  <Hammer className="w-3.5 h-3.5" />
+                  <span>
+                    Smash{' '}
+                    {formatCellCoord(
+                      hammerAdvice.recommendedTarget.col,
+                      hammerAdvice.recommendedTarget.row
+                    )}
+                  </span>
+                </button>
+              )}
+
+            {/* Top Shortcut: Apply Selected / Best Move */}
+            {activeMove && (
+              <button
+                type="button"
+                onClick={() => onApplyActiveMove(activeMove)}
+                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 active:scale-[0.98] text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.35)] border border-amber-300 transition-all"
+                title="Apply the currently selected / #1 Best Move and advance Next Piece into Current Piece"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Apply Move</span>
+                <span className="font-mono text-[11px] bg-black/15 px-1.5 py-0.2 rounded">
+                  {activeMove.placedTiles
+                    .map((pt) => formatCellCoord(pt.col, pt.row))
+                    .join('·')}
+                </span>
+              </button>
+            )}
             {/* Simple vs Advanced View Mode Segmented Switch */}
             <div
               className="flex items-center bg-[#0D0F17] p-0.5 rounded-lg border border-[#293044]"

@@ -355,6 +355,75 @@ export interface ShapeMobilityBreakdown {
   vulnerableShapes: string[];
 }
 
+interface PrecomputedShapeSlots {
+  line3Triplets: Uint8Array;
+  bent3Triplets: Uint8Array;
+  compact3Triplets: Uint8Array;
+  pairDoubles: Uint8Array;
+}
+
+let cachedShapeSlots: PrecomputedShapeSlots | null = null;
+
+function getPrecomputedShapeSlots(): PrecomputedShapeSlots {
+  if (cachedShapeSlots) return cachedShapeSlots;
+
+  const validIndices = getValidCellIndices();
+  const dummy3 = [1, 1, 1];
+  const dummy2 = [1, 1];
+
+  const line3List: number[] = [];
+  for (let rot = 0; rot < 3; rot++) {
+    for (let i = 0; i < validIndices.length; i++) {
+      const { col, row } = indexToCoord(validIndices[i]);
+      const cells = resolvePiecePlacement('line3', rot, dummy3, col, row);
+      if (cells) {
+        line3List.push(cells[0].cellIndex, cells[1].cellIndex, cells[2].cellIndex);
+      }
+    }
+  }
+
+  const bent3List: number[] = [];
+  for (let rot = 0; rot < 6; rot++) {
+    for (let i = 0; i < validIndices.length; i++) {
+      const { col, row } = indexToCoord(validIndices[i]);
+      const cells = resolvePiecePlacement('bent3', rot, dummy3, col, row);
+      if (cells) {
+        bent3List.push(cells[0].cellIndex, cells[1].cellIndex, cells[2].cellIndex);
+      }
+    }
+  }
+
+  const compact3List: number[] = [];
+  for (let rot = 0; rot < 2; rot++) {
+    for (let i = 0; i < validIndices.length; i++) {
+      const { col, row } = indexToCoord(validIndices[i]);
+      const cells = resolvePiecePlacement('compact3', rot, dummy3, col, row);
+      if (cells) {
+        compact3List.push(cells[0].cellIndex, cells[1].cellIndex, cells[2].cellIndex);
+      }
+    }
+  }
+
+  const pairList: number[] = [];
+  for (let rot = 0; rot < 3; rot++) {
+    for (let i = 0; i < validIndices.length; i++) {
+      const { col, row } = indexToCoord(validIndices[i]);
+      const cells = resolvePiecePlacement('pair', rot, dummy2, col, row);
+      if (cells) {
+        pairList.push(cells[0].cellIndex, cells[1].cellIndex);
+      }
+    }
+  }
+
+  cachedShapeSlots = {
+    line3Triplets: new Uint8Array(line3List),
+    bent3Triplets: new Uint8Array(bent3List),
+    compact3Triplets: new Uint8Array(compact3List),
+    pairDoubles: new Uint8Array(pairList),
+  };
+  return cachedShapeSlots;
+}
+
 /**
  * Computes valid placement counts for each piece family (including 3-Triangle `compact3`,
  * `line3`, `bent3`/`chevron3`, and `pair`) so the solver detects when the board is
@@ -363,81 +432,46 @@ export interface ShapeMobilityBreakdown {
 export function analyzeShapeMobility(
   board: Uint8Array
 ): ShapeMobilityBreakdown {
-  const validIndices = getValidCellIndices();
-  const dummy3 = [1, 1, 1];
-  const dummy2 = [1, 1];
+  const { line3Triplets, bent3Triplets, compact3Triplets, pairDoubles } =
+    getPrecomputedShapeSlots();
 
   let line3Slots = 0;
+  for (let i = 0; i < line3Triplets.length; i += 3) {
+    if (
+      board[line3Triplets[i]] === 0 &&
+      board[line3Triplets[i + 1]] === 0 &&
+      board[line3Triplets[i + 2]] === 0
+    ) {
+      line3Slots++;
+    }
+  }
+
   let bentAndChevronSlots = 0;
+  for (let i = 0; i < bent3Triplets.length; i += 3) {
+    if (
+      board[bent3Triplets[i]] === 0 &&
+      board[bent3Triplets[i + 1]] === 0 &&
+      board[bent3Triplets[i + 2]] === 0
+    ) {
+      bentAndChevronSlots++;
+    }
+  }
+
   let compact3TriangleSlots = 0;
+  for (let i = 0; i < compact3Triplets.length; i += 3) {
+    if (
+      board[compact3Triplets[i]] === 0 &&
+      board[compact3Triplets[i + 1]] === 0 &&
+      board[compact3Triplets[i + 2]] === 0
+    ) {
+      compact3TriangleSlots++;
+    }
+  }
+
   let pairSlots = 0;
-
-  // 1. Line-3 (3 unique axial orientations: 0, 1, 2)
-  for (let rot = 0; rot < 3; rot++) {
-    for (let i = 0; i < validIndices.length; i++) {
-      const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('line3', rot, dummy3, col, row);
-      if (
-        cells &&
-        board[cells[0].cellIndex] === 0 &&
-        board[cells[1].cellIndex] === 0 &&
-        board[cells[2].cellIndex] === 0
-      ) {
-        line3Slots++;
-      }
-    }
-  }
-
-  // 2. Bent-3 / Chevron-3 (6 orientations around vertex)
-  for (let rot = 0; rot < 6; rot++) {
-    for (let i = 0; i < validIndices.length; i++) {
-      const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('bent3', rot, dummy3, col, row);
-      if (
-        cells &&
-        board[cells[0].cellIndex] === 0 &&
-        board[cells[1].cellIndex] === 0 &&
-        board[cells[2].cellIndex] === 0
-      ) {
-        bentAndChevronSlots++;
-      }
-    }
-  }
-
-  // 3. Compact-3 (3-Tile Triangle Cluster — 2 unique triangle orientations per anchor: rot 0 (N+NE) and rot 1 (NE+SE))
-  for (let rot = 0; rot < 2; rot++) {
-    for (let i = 0; i < validIndices.length; i++) {
-      const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement(
-        'compact3',
-        rot,
-        dummy3,
-        col,
-        row
-      );
-      if (
-        cells &&
-        board[cells[0].cellIndex] === 0 &&
-        board[cells[1].cellIndex] === 0 &&
-        board[cells[2].cellIndex] === 0
-      ) {
-        compact3TriangleSlots++;
-      }
-    }
-  }
-
-  // 4. Pair (2-Tile Domino — 3 unique axis orientations: 0, 1, 2)
-  for (let rot = 0; rot < 3; rot++) {
-    for (let i = 0; i < validIndices.length; i++) {
-      const { col, row } = indexToCoord(validIndices[i]);
-      const cells = resolvePiecePlacement('pair', rot, dummy2, col, row);
-      if (
-        cells &&
-        board[cells[0].cellIndex] === 0 &&
-        board[cells[1].cellIndex] === 0
-      ) {
-        pairSlots++;
-      }
+  for (let i = 0; i < pairDoubles.length; i += 2) {
+    if (board[pairDoubles[i]] === 0 && board[pairDoubles[i + 1]] === 0) {
+      pairSlots++;
     }
   }
 

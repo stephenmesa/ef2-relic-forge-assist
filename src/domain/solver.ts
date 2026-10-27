@@ -212,7 +212,8 @@ export function evaluateBoardState(
   initialBoard: Uint8Array,
   initialMaxStar: number,
   hammerAvailable: boolean = true,
-  queueStars: number[] = []
+  queueStars: number[] = [],
+  cachedInitialShapeMob?: ReturnType<typeof analyzeShapeMobility>
 ): {
   totalEval: number;
   deadSpacePenalty: number;
@@ -316,7 +317,8 @@ export function evaluateBoardState(
 
   const emptyCells = countEmptyCells(board);
   const emptyCellsBefore = countEmptyCells(initialBoard);
-  const initialShapeMob = analyzeShapeMobility(initialBoard);
+  const initialShapeMob =
+    cachedInitialShapeMob ?? analyzeShapeMobility(initialBoard);
 
   // Scale dead-space penalty and straggler-rescue bonus with the tier level (1.7^L) so high-tier
   // merges (6★ -> 7★, 6★ -> 8★, 7★ -> 8★) never dwarf the cost of leaving dead relics behind!
@@ -664,6 +666,7 @@ export function solveBestMoves(
 } {
   const startTime = performance.now();
   const emptyCellsBefore = countEmptyCells(board);
+  const initialShapeMob = analyzeShapeMobility(board);
   const ply1Placements = generateValidPlacements(board, currentPiece);
   const queueStars = [
     ...currentPiece.tileStars,
@@ -700,7 +703,8 @@ export function solveBestMoves(
       board,
       maxUnlockedStar,
       hammerAvailable,
-      queueStars
+      queueStars,
+      initialShapeMob
     );
     let emptyCellsAfterPly2 = emptyCellsAfterPly1;
     let threeTileMobilityAfter = terminalEval.totalThreeTileSlots;
@@ -737,7 +741,8 @@ export function solveBestMoves(
             board,
             maxUnlockedStar,
             hammerAvailable,
-            queueStars
+            queueStars,
+            initialShapeMob
           );
 
           const combinedPly2 = ply2Trans.score + boardEval.totalEval;

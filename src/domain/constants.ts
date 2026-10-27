@@ -187,8 +187,8 @@ export const PIECE_SHAPES: Record<PieceShapeId, PieceShapeSpec> = {
   },
   bent3: {
     id: 'bent3',
-    name: '3-Tile Bent (L Shape)',
-    shortName: '3-Bent (L)',
+    name: '3-Tile Bent / Arch (120°)',
+    shortName: '3-Bent',
     tileCount: 3,
     baseCubeOffsets: [
       [0, 0, 0], // Vertex
@@ -198,7 +198,7 @@ export const PIECE_SHAPES: Record<PieceShapeId, PieceShapeSpec> = {
     rotationLabels: [
       'L-Shape (Arms Up N + Lower-Right SE)',
       'L-Shape (Arms Upper-Right NE + Down S)',
-      'Chevron ^ (Symmetric V: Arms SW + SE)',
+      'Arch ^ (Symmetric V: Arms SE + SW)',
       'L-Shape (Arms Down S + Upper-Left NW)',
       'L-Shape (Arms Lower-Left SW + Up N)',
       'V-Shape v (Symmetric V: Arms NW + NE)',
@@ -229,7 +229,6 @@ export const PIECE_SHAPE_ORDER: PieceShapeId[] = [
   'single',
   'pair',
   'line3',
-  'chevron3',
   'bent3',
   'compact3',
 ];

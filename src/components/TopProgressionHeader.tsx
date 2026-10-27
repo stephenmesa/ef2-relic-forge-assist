@@ -3,13 +3,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   Flame,
+  Hammer,
   Lock,
   Redo2,
   RotateCcw,
   Share2,
   Skull,
+  SlidersHorizontal,
   Sparkles,
   Undo2,
+  Zap,
 } from 'lucide-react';
 import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
 import { PRESET_SCENARIOS } from '../domain/presets';
@@ -17,8 +20,10 @@ import { PresetScenario, StragglerCellInfo } from '../types/forge';
 import { getRelicSwatchStyle, RelicSvgIcon } from './RelicTileVisual';
 
 interface TopProgressionHeaderProps {
-  fiveTileSuperMerge: boolean;
-  onToggleFiveTileSuperMerge: (enabled: boolean) => void;
+  viewMode: 'simple' | 'advanced';
+  onChangeViewMode: (mode: 'simple' | 'advanced') => void;
+  hammerAvailable: boolean;
+  onToggleHammerAvailable: (available: boolean) => void;
   maxUnlockedStar: number;
   isManualMaxStar: boolean;
   onSelectMaxStar: (star: number) => void;
@@ -40,8 +45,10 @@ interface TopProgressionHeaderProps {
 }
 
 export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
-  fiveTileSuperMerge,
-  onToggleFiveTileSuperMerge,
+  viewMode,
+  onChangeViewMode,
+  hammerAvailable,
+  onToggleHammerAvailable,
   maxUnlockedStar,
   isManualMaxStar,
   onSelectMaxStar,
@@ -64,6 +71,7 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
   const deadCount = stragglers.filter((s) => s.status === 'dead').length;
   const atRiskCount = stragglers.filter((s) => s.status === 'at-risk').length;
+  const isAdvanced = viewMode === 'advanced';
 
   // Count how many tiles of each star exist on the board
   const starBoardCounts = new Array(11).fill(0);
@@ -75,7 +83,7 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   return (
     <header className="bg-[#131620] border-b border-[#293044] shadow-lg">
       <div className="max-w-[1680px] mx-auto px-3 sm:px-5 py-2 space-y-2">
-        {/* Top Row: Brand, Layout Toggle, Presets, Undo/Redo/Share */}
+        {/* Top Row: Brand, Simple/Advanced View Toggle, Hammer Status, History */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 via-orange-600 to-red-700 flex items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.4)] border border-amber-300/40">
@@ -86,52 +94,95 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 <h1 className="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 bg-clip-text text-transparent">
                   EF2 Relic Forge Advisor
                 </h1>
-                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-400/30">
-                  2-Ply Tactical Solver
-                </span>
+                {isAdvanced && (
+                  <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-400/30">
+                    2-Ply Tactical Solver
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Controls: Scenario Loader, History, Merge Rules */}
+          {/* Right Controls: Simple/Advanced View Switch, Hammer Toggle, History */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Simple vs Advanced View Mode Segmented Switch */}
+            <div
+              className="flex items-center bg-[#0D0F17] p-0.5 rounded-lg border border-[#293044]"
+              role="group"
+              aria-label="Interface View Mode"
+            >
+              <button
+                type="button"
+                onClick={() => onChangeViewMode('simple')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1 transition-all ${
+                  !isAdvanced
+                    ? 'bg-amber-400 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Simple View: Only the controls and move instructions needed to play"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Simple View</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeViewMode('advanced')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1 transition-all ${
+                  isAdvanced
+                    ? 'bg-indigo-500 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Advanced View: Show progression bar, board KPIs, neighbor radar, and full solver breakdown"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Advanced View</span>
+              </button>
+            </div>
 
-            {/* 5+ Tile Super Merge Rule Toggle */}
+            {/* 1× Per Run Hammer Status Toggle */}
             <button
               type="button"
-              onClick={() => onToggleFiveTileSuperMerge(!fiveTileSuperMerge)}
+              onClick={() => onToggleHammerAvailable(!hammerAvailable)}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                fiveTileSuperMerge
-                  ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+                hammerAvailable
+                  ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
                   : 'bg-[#0D0F17] text-slate-400 border-[#293044] hover:text-slate-200'
               }`}
-              title="Toggle whether merging 5+ identical tiles at once jumps +2★ (e.g. 5× 1★ → 3★) vs +1★"
+              title="Toggle whether your single-use Run Hammer (destroys 1 relic on the board) is still available in this run"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>5+ Merge: {fiveTileSuperMerge ? '+2★ Super' : '+1★ Std'}</span>
+              <Hammer
+                className={`w-3.5 h-3.5 ${
+                  hammerAvailable ? 'text-emerald-400' : 'text-slate-500'
+                }`}
+              />
+              <span>
+                1× Hammer: {hammerAvailable ? 'Ready' : 'Used'}
+              </span>
             </button>
 
-            {/* Load Example Scenario Dropdown */}
-            <div className="relative">
-              <select
-                aria-label="Load Example Gameplay Scenario"
-                value={activePresetId || ''}
-                onChange={(e) => {
-                  const found = PRESET_SCENARIOS.find((p) => p.id === e.target.value);
-                  if (found) onLoadPreset(found);
-                }}
-                className="bg-[#1A1E2C] hover:bg-[#22283A] text-amber-200 text-xs font-semibold rounded-lg px-3 py-1.5 border border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
-              >
-                <option value="" disabled>
-                  🎬 Load Gameplay Scenario...
-                </option>
-                {PRESET_SCENARIOS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.title} ({preset.videoTimestamp})
+            {/* Load Example Scenario Dropdown (Advanced View Only) */}
+            {isAdvanced && (
+              <div className="relative">
+                <select
+                  aria-label="Load Example Gameplay Scenario"
+                  value={activePresetId || ''}
+                  onChange={(e) => {
+                    const found = PRESET_SCENARIOS.find((p) => p.id === e.target.value);
+                    if (found) onLoadPreset(found);
+                  }}
+                  className="bg-[#1A1E2C] hover:bg-[#22283A] text-amber-200 text-xs font-semibold rounded-lg px-3 py-1.5 border border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
+                >
+                  <option value="" disabled>
+                    🎬 Load Gameplay Scenario...
                   </option>
-                ))}
-              </select>
-            </div>
+                  {PRESET_SCENARIOS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.title} ({preset.videoTimestamp})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Undo / Redo / Share / Reset */}
             <div className="flex items-center gap-1 bg-[#0D0F17] p-1 rounded-lg border border-[#293044]">
@@ -153,15 +204,17 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
               >
                 <Redo2 className="w-4 h-4" />
               </button>
-              <button
-                type="button"
-                onClick={onShareState}
-                className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1"
-                title="Copy shareable board state link"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Share</span>
-              </button>
+              {isAdvanced && (
+                <button
+                  type="button"
+                  onClick={onShareState}
+                  className="px-2 py-1 rounded text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1"
+                  title="Copy shareable board state link"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Share</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClearBoard}
@@ -175,7 +228,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
           </div>
         </div>
 
-        {/* Middle Row: 10-Slot Relic Progression Bar (1★ to 10★) & Live Board KPIs */}
+        {/* Middle Row: 10-Slot Relic Progression Bar (1★ to 10★) & Live Board KPIs (Advanced View Only) */}
+        {isAdvanced && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-2 items-center bg-[#0D0F17]/90 p-2 rounded-xl border border-[#262C3F]">
           {/* 10-Slot Relic Progression Bar */}
           <div className="xl:col-span-8 flex flex-col gap-1.5">
@@ -421,6 +475,7 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
             </div>
           </div>
         </div>
+        )}
       </div>
     </header>
   );

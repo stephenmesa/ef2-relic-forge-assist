@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
-  ArrowLeftRight,
   ArrowRight,
   ChevronDown,
   ChevronUp,
@@ -10,17 +9,19 @@ import {
   Eye,
   FastForward,
   Flame,
+  Hammer,
   Play,
   ShieldCheck,
   Skull,
   Sparkles,
 } from 'lucide-react';
-import { formatCellCoordVerbose, indexToCoord } from '../domain/honeycomb';
+import { formatCellCoord, formatCellCoordVerbose, indexToCoord } from '../domain/honeycomb';
 import { formatPlacedTilesSummary } from '../domain/solver';
-import { CandidateMove, PieceConfig } from '../types/forge';
+import { CandidateMove, HammerAdvice, PieceConfig } from '../types/forge';
 import { MiniPiecePreview } from './PieceComposer';
 
 interface RecommendationsPanelProps {
+  viewMode: 'simple' | 'advanced';
   currentPiece: PieceConfig;
   nextPiece: PieceConfig;
   nextPieceKnown: boolean;
@@ -28,34 +29,48 @@ interface RecommendationsPanelProps {
   allCandidates: CandidateMove[];
   lethalMoves: CandidateMove[];
   elapsedMs: number;
+  hammerAvailable: boolean;
+  hammerAdvice: HammerAdvice;
+  onUseHammer: (cellIndex: number) => void;
+  onToggleHammerAvailable: (available: boolean) => void;
+  onHoverHammerTarget: (cellIndex: number | null) => void;
   selectedMoveId: string | null;
   hoveredMoveId: string | null;
   onSelectMove: (moveId: string | null) => void;
   onHoverMove: (moveId: string | null) => void;
   onApplyPly1Move: (move: CandidateMove) => void;
   onApplyBothMoves: (move: CandidateMove) => void;
-  onSwapAmbiguousLanding: (moveId: string, newLandingCell: number) => void;
 }
 
 export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
+  viewMode,
   currentPiece,
   nextPieceKnown,
   topRecommendations,
   allCandidates,
   lethalMoves,
   elapsedMs,
+  hammerAvailable,
+  hammerAdvice,
+  onUseHammer,
+  onToggleHammerAvailable,
+  onHoverHammerTarget,
   selectedMoveId,
   hoveredMoveId,
   onSelectMove,
   onHoverMove,
   onApplyPly1Move,
   onApplyBothMoves,
-  onSwapAmbiguousLanding,
 }) => {
+  const isAdvanced = viewMode === 'advanced';
   const [expandedBreakdownId, setExpandedBreakdownId] = useState<string | null>(
     null
   );
   const [showAllLegalMoves, setShowAllLegalMoves] = useState(false);
+
+  const visibleRecommendations = isAdvanced
+    ? topRecommendations
+    : topRecommendations.slice(0, 1);
 
   const getRankLabel = (idx: number) => {
     if (idx === 0) return { title: '#1 BEST MOVE', badgeBg: 'bg-amber-400 text-slate-950' };
@@ -89,21 +104,154 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-400" />
             <h2 className="text-base font-extrabold tracking-tight text-white">
-              Ranked Advisor Recommendations
+              {isAdvanced ? 'Ranked Advisor Recommendations' : 'Best Move to Play'}
             </h2>
           </div>
-          <p className="text-xs text-slate-400">
-            {nextPieceKnown
-              ? `Evaluated ${allCandidates.length} valid placements × 2-Ply Next Piece lookahead`
-              : `Evaluated ${allCandidates.length} valid placements (1-Ply + Spawn Expectation)`}
-          </p>
+          {isAdvanced && (
+            <p className="text-xs text-slate-400">
+              {nextPieceKnown
+                ? `Evaluated ${allCandidates.length} valid placements × 2-Ply Next Piece lookahead`
+                : `Evaluated ${allCandidates.length} valid placements (1-Ply + Spawn Expectation)`}
+            </p>
+          )}
         </div>
 
-        <div className="flex items-center gap-1.5 text-[11px] font-mono bg-[#0C0E16] px-2.5 py-1 rounded-lg border border-[#252B3F] text-emerald-300">
-          <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{elapsedMs} ms</span>
-        </div>
+        {isAdvanced && (
+          <div className="flex items-center gap-1.5 text-[11px] font-mono bg-[#0C0E16] px-2.5 py-1 rounded-lg border border-[#252B3F] text-emerald-300">
+            <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{elapsedMs} ms</span>
+          </div>
+        )}
       </div>
+
+      {/* 1× Per Run Hammer Advisor Banner (In Simple View, only shown when Hammer is recommended NOW!) */}
+      {hammerAvailable && (isAdvanced || hammerAdvice.shouldUseNow) ? (
+        <div
+          onMouseEnter={() =>
+            onHoverHammerTarget(
+              hammerAdvice.recommendedTarget?.cellIndex ?? null
+            )
+          }
+          onMouseLeave={() => onHoverHammerTarget(null)}
+          className={`rounded-xl p-3 border transition-all space-y-2 ${
+            hammerAdvice.urgency === 'critical-survival'
+              ? 'bg-rose-950/60 border-rose-400/80 shadow-[0_0_18px_rgba(244,63,94,0.3)]'
+              : hammerAdvice.urgency === 'high-value-cascade'
+              ? 'bg-amber-950/50 border-amber-400/80 shadow-[0_0_16px_rgba(251,191,36,0.25)]'
+              : hammerAdvice.urgency === 'good-cleanup'
+              ? 'bg-emerald-950/45 border-emerald-400/70'
+              : 'bg-[#0F131F] border-[#262E45]'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase flex items-center gap-1 ${
+                  hammerAdvice.shouldUseNow
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}
+              >
+                <Hammer className="w-3 h-3" />
+                <span>1× Run Hammer</span>
+              </span>
+              <span
+                className={`text-xs font-extrabold ${
+                  hammerAdvice.urgency === 'critical-survival'
+                    ? 'text-rose-200'
+                    : hammerAdvice.shouldUseNow
+                    ? 'text-amber-200'
+                    : 'text-slate-200'
+                }`}
+              >
+                {hammerAdvice.headline}
+              </span>
+            </div>
+
+            {isAdvanced && (
+              <button
+                type="button"
+                onClick={() => onToggleHammerAvailable(false)}
+                className="text-[10px] text-slate-400 hover:text-slate-200 underline"
+                title="Mark your 1× Run Hammer as already used in this run"
+              >
+                Mark Already Used
+              </button>
+            )}
+          </div>
+
+          {isAdvanced && (
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {hammerAdvice.rationale}
+            </p>
+          )}
+
+          {hammerAdvice.recommendedTarget && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/10 text-xs">
+              <div className="text-slate-200">
+                <span className="text-slate-400 mr-1">
+                  {hammerAdvice.shouldUseNow
+                    ? 'Smash Target:'
+                    : 'Best Target If Used Now:'}
+                </span>
+                <strong className="text-amber-300">
+                  {formatCellCoordVerbose(
+                    hammerAdvice.recommendedTarget.col,
+                    hammerAdvice.recommendedTarget.row
+                  )}{' '}
+                  [{hammerAdvice.recommendedTarget.star}★
+                  {isAdvanced && hammerAdvice.recommendedTarget.isDeadRetired
+                    ? ' • Retired Dead Space'
+                    : isAdvanced && hammerAdvice.recommendedTarget.isAtRisk
+                    ? ' • At Risk'
+                    : ''}
+                  ]
+                </strong>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  onUseHammer(hammerAdvice.recommendedTarget!.cellIndex)
+                }
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1.5 transition-all ${
+                  hammerAdvice.shouldUseNow
+                    ? 'bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 shadow'
+                    : 'bg-[#1A2032] hover:bg-[#232B42] text-amber-200 border border-amber-400/40'
+                }`}
+                title="Destroy this relic on the board and mark your 1× Run Hammer as used"
+              >
+                <Hammer className="w-3.5 h-3.5" />
+                <span>
+                  Smash{' '}
+                  {formatCellCoord(
+                    hammerAdvice.recommendedTarget.col,
+                    hammerAdvice.recommendedTarget.row
+                  )}{' '}
+                  ({hammerAdvice.recommendedTarget.star}★)
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        isAdvanced &&
+        !hammerAvailable && (
+          <div className="rounded-xl px-3 py-2 bg-[#0E111B] border border-[#232A3E] flex items-center justify-between gap-2 text-xs text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <Hammer className="w-3.5 h-3.5 text-slate-500" />
+              <span>1× Run Hammer: Already used in this run</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onToggleHammerAvailable(true)}
+              className="text-[11px] font-semibold text-emerald-300 hover:underline"
+            >
+              Restore 1× Hammer
+            </button>
+          </div>
+        )
+      )}
 
       {/* Game Over Alert if Zero Legal Placements Exist */}
       {allCandidates.length === 0 && (
@@ -113,14 +261,20 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
             NO VALID PLACEMENTS AVAILABLE (GAME OVER)
           </h3>
           <p className="text-xs text-rose-300/90 max-w-md mx-auto">
-            The Current Piece cannot fit onto any empty cells across any of its 6 honeycomb rotations. Clear a cell on the board or change the Current Piece shape to continue.
+            The Current Piece cannot fit onto any empty cells across any of its 6 honeycomb rotations.{' '}
+            {hammerAvailable && hammerAdvice.recommendedTarget
+              ? `Use your 1× Hammer above to smash ${formatCellCoord(
+                  hammerAdvice.recommendedTarget.col,
+                  hammerAdvice.recommendedTarget.row
+                )} and stay alive!`
+              : 'Clear a cell on the board or change the Current Piece shape to continue.'}
           </p>
         </div>
       )}
 
-      {/* Top 3 Recommendation Cards */}
+      {/* Recommendation Cards (#1 Only in Simple View, Top 3 in Advanced View) */}
       <div className="space-y-3">
-        {topRecommendations.map((move, idx) => {
+        {visibleRecommendations.map((move, idx) => {
           const rankInfo = getRankLabel(idx);
           const isSelected = selectedMoveId === move.id;
           const isHovered = hoveredMoveId === move.id;
@@ -131,13 +285,14 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
             shapeId: currentPiece.shapeId,
             rotation: move.rotation,
             tileStars: currentPiece.tileStars,
+            anchorTileIndex: currentPiece.anchorTileIndex,
           };
 
           return (
             <div
               key={move.id}
-              onMouseEnter={() => onHoverMove(move.id)}
-              onMouseLeave={() => onHoverMove(null)}
+              onMouseEnter={() => isAdvanced && onHoverMove(move.id)}
+              onMouseLeave={() => isAdvanced && onHoverMove(null)}
               className={`rounded-2xl p-3.5 transition-all border-2 ${
                 isSelected
                   ? 'bg-[#1A1F30] border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.2)]'
@@ -148,7 +303,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                   : 'bg-[#141824] border-[#283046]'
               }`}
             >
-              {/* Card Top Row: Rank Badge, Strategic Tag, Score */}
+              {/* Card Top Row: Rank Badge (+ Strategic Tag & Score in Advanced View) */}
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span
@@ -156,31 +311,35 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                   >
                     {rankInfo.title}
                   </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${getToneStyle(
-                      move.strategicTag.tone
-                    )}`}
-                  >
-                    {move.strategicTag.label}
-                  </span>
+                  {isAdvanced && (
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${getToneStyle(
+                        move.strategicTag.tone
+                      )}`}
+                    >
+                      {move.strategicTag.label}
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    Score:
-                  </span>
-                  <span
-                    className={`font-mono text-sm font-black px-2 py-0.5 rounded bg-[#0C0E16] border border-[#283048] ${
-                      move.totalScore >= 0 ? 'text-amber-300' : 'text-rose-400'
-                    }`}
-                  >
-                    {move.totalScore > 0 ? `+${move.totalScore.toLocaleString()}` : move.totalScore.toLocaleString()}
-                  </span>
-                </div>
+                {isAdvanced && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      Score:
+                    </span>
+                    <span
+                      className={`font-mono text-sm font-black px-2 py-0.5 rounded bg-[#0C0E16] border border-[#283048] ${
+                        move.totalScore >= 0 ? 'text-amber-300' : 'text-rose-400'
+                      }`}
+                    >
+                      {move.totalScore > 0 ? `+${move.totalScore.toLocaleString()}` : move.totalScore.toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Warnings Banner (if Premature Tier-Up Trap or Lethal) */}
-              {move.warnings.length > 0 && (
+              {/* Warnings Banner (Advanced View Only) */}
+              {isAdvanced && move.warnings.length > 0 && (
                 <div className="mb-2.5 p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/60 space-y-1">
                   {move.warnings.map((w, wIdx) => (
                     <div
@@ -202,7 +361,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                 </div>
 
                 {/* Exact Coordinates & Outcome Breakdown */}
-                <div className="sm:col-span-8 space-y-1.5 text-xs">
+                <div className="sm:col-span-8 space-y-2 text-xs">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                       1. Required Orientation:
@@ -220,10 +379,20 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                       {move.placedTiles.map((pt) => (
                         <span
                           key={pt.tileIndex}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#181D2D] border border-[#2E3752] text-slate-100 font-semibold text-[11px]"
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-slate-100 font-semibold text-[11px] ${
+                            pt.isAnchor
+                              ? 'bg-amber-950/35 border-amber-400/60'
+                              : 'bg-[#181D2D] border-[#2E3752]'
+                          }`}
+                          title={
+                            pt.isAnchor
+                              ? 'Anchor Relic Dot (●): Merged relic lands on this square'
+                              : undefined
+                          }
                         >
                           <span className="text-amber-300 font-black">
                             T{pt.tileIndex}
+                            {pt.isAnchor ? ' ●' : ''}
                           </span>
                           <span>→</span>
                           <span>{formatCellCoordVerbose(pt.col, pt.row)}</span>
@@ -235,135 +404,108 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Immediate Merges & Cascades */}
-                  <div className="pt-1 border-t border-white/5 flex flex-col gap-1">
-                    {move.ply1Sim.merges.length > 0 ? (
-                      <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
-                        <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span>
-                          Ply 1:{' '}
-                          {move.ply1Sim.merges
-                            .map((m) => {
-                              const { col, row } = indexToCoord(m.landingCell);
-                              return `${m.mergedCells.length}× ${m.fromStar}★ → ${
-                                m.toStar
-                              }★ at ${String.fromCharCode(65 + col)}${row + 1}`;
-                            })
-                            .join('  ⇒  ')}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="text-slate-400">
-                        Ply 1: Setup placement (no immediate merge)
-                      </div>
+                  {/* Immediate Merges & Cascades (Advanced View Only) */}
+                  {isAdvanced && (
+                    <div className="pt-1 border-t border-white/5 flex flex-col gap-1">
+                      {move.ply1Sim.merges.length > 0 ? (
+                        <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                          <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>
+                            Ply 1:{' '}
+                            {move.ply1Sim.merges
+                              .map((m) => {
+                                const { col, row } = indexToCoord(m.landingCell);
+                                return `${m.mergedCells.length}× ${m.fromStar}★ → ${
+                                  m.toStar
+                                }★ at ${String.fromCharCode(65 + col)}${row + 1}`;
+                              })
+                              .join('  ⇒  ')}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-slate-400">
+                          Ply 1: Setup placement (no immediate merge)
+                        </div>
+                      )}
+
+                      {/* Best Ply-2 Next Piece Follow-Up */}
+                      {nextPieceKnown && move.bestPly2 && (
+                        <div className="flex items-start gap-1.5 text-cyan-300 font-medium">
+                          <ArrowRight className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>
+                            Next Piece Best Follow-Up: Place at{' '}
+                            <strong>
+                              {formatPlacedTilesSummary(move.bestPly2.placedTiles)}
+                            </strong>
+                            {move.bestPly2.sim.merges.length > 0 && (
+                              <span className="text-emerald-300 font-bold ml-1">
+                                (Merges{' '}
+                                {move.bestPly2.sim.merges
+                                  .map((m) => `${m.fromStar}★→${m.toStar}★`)
+                                  .join(' ⇒ ')}
+                                )
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* KPI Impact Pills (Advanced View Only) */}
+              {isAdvanced && (
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded bg-[#0E111A] border border-[#252C40] text-slate-300">
+                      Open Cells:{' '}
+                      <strong className="text-white">
+                        {move.emptyCellsBefore} → {move.emptyCellsAfterPly2}
+                      </strong>{' '}
+                      <span
+                        className={
+                          netEmptyDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'
+                        }
+                      >
+                        ({netEmptyDelta >= 0 ? `+${netEmptyDelta}` : netEmptyDelta})
+                      </span>
+                    </span>
+
+                    {move.rescuedStragglersCount > 0 && (
+                      <span className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 font-bold flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3" />
+                        Clears {move.rescuedStragglersCount}× Low-Star Straggler!
+                      </span>
                     )}
 
-                    {/* Ambiguous Multi-Tile Merge Landing Override Control */}
-                    {move.ply1Sim.ambiguousMerges.length > 0 && (
-                      <div className="flex flex-wrap items-center justify-between gap-1.5 bg-cyan-950/35 border border-cyan-500/40 rounded-lg px-2 py-1 text-[11px] text-cyan-200">
-                        <span>
-                          Multi-tile {move.ply1Sim.ambiguousMerges[0].fromStar}★ merge lands at{' '}
-                          <strong>
-                            {(() => {
-                              const { col, row } = indexToCoord(
-                                move.ply1Sim.ambiguousMerges[0].primaryCell
-                              );
-                              return `${String.fromCharCode(65 + col)}${row + 1}`;
-                            })()}
-                          </strong>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onSwapAmbiguousLanding(
-                              move.id,
-                              move.ply1Sim.ambiguousMerges[0].alternativeCells[0]
-                            )
-                          }
-                          className="px-2 py-0.5 rounded bg-cyan-500/25 hover:bg-cyan-500/40 text-cyan-100 font-bold flex items-center gap-1 border border-cyan-400/50"
-                          title="Simulate landing the upgraded tile on the other placed square of this piece"
-                        >
-                          <ArrowLeftRight className="w-3 h-3" />
-                          <span>Swap Landing Spot</span>
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Best Ply-2 Next Piece Follow-Up */}
-                    {nextPieceKnown && move.bestPly2 && (
-                      <div className="flex items-start gap-1.5 text-cyan-300 font-medium">
-                        <ArrowRight className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                        <span>
-                          Next Piece Best Follow-Up: Place at{' '}
-                          <strong>
-                            {formatPlacedTilesSummary(move.bestPly2.placedTiles)}
-                          </strong>
-                          {move.bestPly2.sim.merges.length > 0 && (
-                            <span className="text-emerald-300 font-bold ml-1">
-                              (Merges{' '}
-                              {move.bestPly2.sim.merges
-                                .map((m) => `${m.fromStar}★→${m.toStar}★`)
-                                .join(' ⇒ ')}
-                              )
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    )}
+                    <span className="px-2 py-0.5 rounded bg-[#0E111A] border border-[#252C40] text-slate-400">
+                      3-Tile Mobility:{' '}
+                      <strong className="text-cyan-300">
+                        {move.threeTileMobilityAfter}
+                      </strong>
+                    </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedBreakdownId(isExpanded ? null : move.id)
+                    }
+                    className="text-slate-400 hover:text-slate-200 flex items-center gap-0.5 font-medium"
+                  >
+                    <span>Heuristic Breakdown</span>
+                    {isExpanded ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
                 </div>
-              </div>
+              )}
 
-              {/* KPI Impact Pills (Empty Spaces, Stragglers, Mobility) */}
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded bg-[#0E111A] border border-[#252C40] text-slate-300">
-                    Open Cells:{' '}
-                    <strong className="text-white">
-                      {move.emptyCellsBefore} → {move.emptyCellsAfterPly2}
-                    </strong>{' '}
-                    <span
-                      className={
-                        netEmptyDelta >= 0 ? 'text-emerald-400' : 'text-amber-300'
-                      }
-                    >
-                      ({netEmptyDelta >= 0 ? `+${netEmptyDelta}` : netEmptyDelta})
-                    </span>
-                  </span>
-
-                  {move.rescuedStragglersCount > 0 && (
-                    <span className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 font-bold flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3" />
-                      Clears {move.rescuedStragglersCount}× Low-Star Straggler!
-                    </span>
-                  )}
-
-                  <span className="px-2 py-0.5 rounded bg-[#0E111A] border border-[#252C40] text-slate-400">
-                    3-Tile Mobility:{' '}
-                    <strong className="text-cyan-300">
-                      {move.threeTileMobilityAfter}
-                    </strong>
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedBreakdownId(isExpanded ? null : move.id)
-                  }
-                  className="text-slate-400 hover:text-slate-200 flex items-center gap-0.5 font-medium"
-                >
-                  <span>Heuristic Breakdown</span>
-                  {isExpanded ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </button>
-              </div>
-
-              {/* Collapsible Heuristic Score Breakdown */}
-              {isExpanded && (
+              {/* Collapsible Heuristic Score Breakdown (Advanced View Only) */}
+              {isAdvanced && isExpanded && (
                 <div className="mt-2 p-2.5 rounded-xl bg-[#0B0D14] border border-[#22283B] space-y-1 text-xs">
                   {move.scoreBreakdown.map((item, sIdx) => (
                     <div
@@ -389,32 +531,40 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
 
               {/* Action Buttons Row */}
               <div className="mt-3 pt-2.5 border-t border-[#252C42] flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    onSelectMove(isSelected ? null : move.id)
-                  }
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    isSelected
-                      ? 'bg-amber-400/20 text-amber-200 border-amber-400'
-                      : 'bg-[#1A2032] hover:bg-[#222A40] text-slate-200 border-[#2F3956]'
-                  }`}
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>{isSelected ? 'Locked on Board' : 'Preview on Board'}</span>
-                </button>
+                {isAdvanced && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSelectMove(isSelected ? null : move.id)
+                    }
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                      isSelected
+                        ? 'bg-amber-400/20 text-amber-200 border-amber-400'
+                        : 'bg-[#1A2032] hover:bg-[#222A40] text-slate-200 border-[#2F3956]'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{isSelected ? 'Locked on Board' : 'Preview on Board'}</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
                   onClick={() => onApplyPly1Move(move)}
-                  className="flex-1 py-1.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition-all"
+                  className={`flex-1 ${
+                    isAdvanced ? 'py-1.5 px-3 text-xs' : 'py-2.5 px-4 text-sm'
+                  } rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black flex items-center justify-center gap-1.5 shadow-md transition-all`}
                   title="Execute Current Piece placement, resolve cascades, and promote Next Piece into Current Piece slot"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Apply Move (Current Piece)</span>
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>
+                    {isAdvanced
+                      ? 'Apply Move (Current Piece)'
+                      : 'Apply Move (Advance Queue)'}
+                  </span>
                 </button>
 
-                {nextPieceKnown && move.bestPly2 && (
+                {isAdvanced && nextPieceKnown && move.bestPly2 && (
                   <button
                     type="button"
                     onClick={() => onApplyBothMoves(move)}
@@ -431,8 +581,8 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
         })}
       </div>
 
-      {/* Collapsible All Legal Moves & Filtered Trap/Lethal Moves Drawer */}
-      {allCandidates.length > 3 && (
+      {/* Collapsible All Legal Moves & Filtered Trap/Lethal Moves Drawer (Advanced View Only) */}
+      {isAdvanced && allCandidates.length > 3 && (
         <div className="pt-2 border-t border-[#242B3E]">
           <button
             type="button"

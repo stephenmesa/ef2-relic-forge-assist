@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeftRight,
   CheckCircle2,
   Film,
-  Info,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -21,15 +19,12 @@ import {
 import {
   analyzeBoardStragglers,
   analyzeShapeMobility,
-  applyPostMergeStarAdjustment,
   countEmptyCells,
-  simulatePlacement,
 } from './domain/simulator';
-import { solveBestMoves } from './domain/solver';
+import { evaluateHammerAdvice, solveBestMoves } from './domain/solver';
 import {
   CandidateMove,
   PieceConfig,
-  PlacedTile,
   PresetScenario,
 } from './types/forge';
 
@@ -39,33 +34,30 @@ interface HistorySnapshot {
   currentPiece: PieceConfig;
   nextPiece: PieceConfig;
   nextPieceKnown: boolean;
+  hammerAvailable: boolean;
   activePresetId: string | null;
-}
-
-interface LastMergeMoveContext {
-  preMoveBoard: Uint8Array;
-  preMoveMaxStar: number;
-  placedTiles: PlacedTile[];
-  primaryLandingCell: number;
-  alternativeLandingCell: number | null;
-  currentLandingCell: number;
-  mergedStar: number;
 }
 
 const DEFAULT_CURRENT_PIECE: PieceConfig = {
   shapeId: 'pair',
   rotation: 0,
   tileStars: [1, 2],
+  anchorTileIndex: 0,
 };
 
 const DEFAULT_NEXT_PIECE: PieceConfig = {
   shapeId: 'bent3',
   rotation: 0,
   tileStars: [1, 2, 2],
+  anchorTileIndex: 0,
 };
 
 export const App: React.FC = () => {
-  const [fiveTileSuperMerge, setFiveTileSuperMerge] = useState<boolean>(true);
+  const [viewMode, setViewMode] = useState<'simple' | 'advanced'>('simple');
+  const [hammerAvailable, setHammerAvailable] = useState<boolean>(true);
+  const [hoveredHammerTarget, setHoveredHammerTarget] = useState<number | null>(
+    null
+  );
   const [board, setBoard] = useState<Uint8Array>(() => new Uint8Array(25));
   const [manualMaxStar, setManualMaxStar] = useState<number | null>(null);
   const [currentPiece, setCurrentPiece] =
@@ -74,10 +66,10 @@ export const App: React.FC = () => {
   const [nextPieceKnown, setNextPieceKnown] = useState<boolean>(true);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
-  // Paint brush state (0 = eraser, 1..10 = relic star, 'inspect' | 'popover')
-  const [activeBrush, setActiveBrush] = useState<number | 'inspect' | 'popover'>(
-    1
-  );
+  // Paint brush state (0 = eraser, 1..10 = relic star, 'inspect' | 'popover' | 'hammer')
+  const [activeBrush, setActiveBrush] = useState<
+    number | 'inspect' | 'popover' | 'hammer'
+  >(1);
 
   // Undo / Redo stacks (up to 50 states)
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
@@ -88,14 +80,6 @@ export const App: React.FC = () => {
   const [hoveredMoveId, setHoveredMoveId] = useState<string | null>(null);
   const [showPly2Ghost, setShowPly2Ghost] = useState<boolean>(true);
 
-  // Per-move landing overrides when user swaps an ambiguous multi-tile merge landing cell
-  const [landingOverrides, setLandingOverrides] = useState<
-    Record<string, number>
-  >({});
-
-  // Post-Move Merge Adjustment Toast (Lucky +1★ Evolution & Ambiguous Landing Swap)
-  const [lastAmbiguousContext, setLastAmbiguousContext] =
-    useState<LastMergeMoveContext | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Load state from URL hash on mount if present
@@ -108,6 +92,7 @@ export const App: React.FC = () => {
         setCurrentPiece(decoded.currentPiece);
         setNextPiece(decoded.nextPiece);
         setNextPieceKnown(decoded.nextPieceKnown);
+        setHammerAvailable(decoded.hammerAvailable);
         setActivePresetId(null);
       }
     }
@@ -151,6 +136,7 @@ export const App: React.FC = () => {
           tileStars: [...nextPiece.tileStars],
         },
         nextPieceKnown,
+        hammerAvailable,
         activePresetId,
       };
       return [...prev.slice(-49), snapshot];
@@ -162,6 +148,7 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
+    hammerAvailable,
     activePresetId,
   ]);
 
@@ -174,6 +161,7 @@ export const App: React.FC = () => {
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
       nextPiece: { ...nextPiece, tileStars: [...nextPiece.tileStars] },
       nextPieceKnown,
+      hammerAvailable,
       activePresetId,
     };
     setRedoStack((prev) => [...prev, currentSnapshot]);
@@ -184,8 +172,8 @@ export const App: React.FC = () => {
     setCurrentPiece(last.currentPiece);
     setNextPiece(last.nextPiece);
     setNextPieceKnown(last.nextPieceKnown);
+    setHammerAvailable(last.hammerAvailable);
     setActivePresetId(last.activePresetId);
-    setLastAmbiguousContext(null);
   }, [
     undoStack,
     board,
@@ -193,6 +181,7 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
+    hammerAvailable,
     activePresetId,
   ]);
 
@@ -205,6 +194,7 @@ export const App: React.FC = () => {
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
       nextPiece: { ...nextPiece, tileStars: [...nextPiece.tileStars] },
       nextPieceKnown,
+      hammerAvailable,
       activePresetId,
     };
     setUndoStack((prev) => [...prev, currentSnapshot]);
@@ -215,8 +205,8 @@ export const App: React.FC = () => {
     setCurrentPiece(nextSnap.currentPiece);
     setNextPiece(nextSnap.nextPiece);
     setNextPieceKnown(nextSnap.nextPieceKnown);
+    setHammerAvailable(nextSnap.hammerAvailable);
     setActivePresetId(nextSnap.activePresetId);
-    setLastAmbiguousContext(null);
   }, [
     redoStack,
     board,
@@ -224,6 +214,7 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
+    hammerAvailable,
     activePresetId,
   ]);
 
@@ -237,9 +228,33 @@ export const App: React.FC = () => {
         next[cellIndex] = star;
         return next;
       });
-      setLastAmbiguousContext(null);
     },
     [board, pushHistory]
+  );
+
+  // Use 1× Run Hammer on a board cell
+  const handleUseHammer = useCallback(
+    (cellIndex: number) => {
+      const targetStar = board[cellIndex];
+      if (!hammerAvailable || targetStar === 0) return;
+      pushHistory();
+      setBoard((prev) => {
+        const next = new Uint8Array(prev);
+        next[cellIndex] = 0;
+        return next;
+      });
+      setHammerAvailable(false);
+      setHoveredHammerTarget(null);
+      if (activeBrush === 'hammer') {
+        setActiveBrush(1);
+      }
+      const { col, row } = indexToCoord(cellIndex);
+      setToastMessage(
+        `🔨 Smashed ${formatCellCoord(col, row)} (${targetStar}★) — 1× Run Hammer used!`
+      );
+      setTimeout(() => setToastMessage(null), 3500);
+    },
+    [board, hammerAvailable, pushHistory, activeBrush]
   );
 
   // Clear Board / Reset Run
@@ -250,10 +265,10 @@ export const App: React.FC = () => {
     setCurrentPiece(DEFAULT_CURRENT_PIECE);
     setNextPiece(DEFAULT_NEXT_PIECE);
     setNextPieceKnown(true);
+    setHammerAvailable(true);
     setActivePresetId(null);
     setSelectedMoveId(null);
-    setLastAmbiguousContext(null);
-    setToastMessage('Board cleared — reset to fresh run.');
+    setToastMessage('Board cleared — reset to fresh run (1× Hammer restored).');
     setTimeout(() => setToastMessage(null), 3000);
   }, [pushHistory]);
 
@@ -266,16 +281,17 @@ export const App: React.FC = () => {
       setCurrentPiece({
         ...preset.currentPiece,
         tileStars: [...preset.currentPiece.tileStars],
+        anchorTileIndex: preset.currentPiece.anchorTileIndex ?? 0,
       });
       setNextPiece({
         ...preset.nextPiece,
         tileStars: [...preset.nextPiece.tileStars],
+        anchorTileIndex: preset.nextPiece.anchorTileIndex ?? 0,
       });
       setNextPieceKnown(preset.nextPieceKnown);
+      setHammerAvailable(true);
       setActivePresetId(preset.id);
       setSelectedMoveId(null);
-      setLandingOverrides({});
-      setLastAmbiguousContext(null);
     },
     [pushHistory]
   );
@@ -288,6 +304,7 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
+      hammerAvailable,
     });
     window.history.replaceState(null, '', `#${hash}`);
     if (navigator.clipboard) {
@@ -301,6 +318,7 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
+    hammerAvailable,
   ]);
 
   // Compute Live Board Health KPIs
@@ -341,8 +359,7 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      landingOverrides,
-      fiveTileSuperMerge
+      hammerAvailable
     );
   }, [
     board,
@@ -350,18 +367,36 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    landingOverrides,
-    fiveTileSuperMerge,
+    hammerAvailable,
+  ]);
+
+  // Evaluate 1× Run Hammer Advisor
+  const hammerAdvice = useMemo(() => {
+    return evaluateHammerAdvice(
+      board,
+      effectiveMaxStar,
+      currentPiece,
+      nextPiece,
+      nextPieceKnown,
+      solverResult
+    );
+  }, [
+    board,
+    effectiveMaxStar,
+    currentPiece,
+    nextPiece,
+    nextPieceKnown,
+    solverResult,
   ]);
 
   // Determine which move is currently previewed on the Honeycomb Board
   // Defaults to #1 Best Move when no move is explicitly locked or hovered!
   const activePreviewMove = useMemo(() => {
-    if (hoveredMoveId) {
+    if (viewMode === 'advanced' && hoveredMoveId) {
       const found = solverResult.candidates.find((c) => c.id === hoveredMoveId);
       if (found) return { move: found, rank: solverResult.topRecommendations.findIndex((t) => t.id === found.id) + 1 || null };
     }
-    if (selectedMoveId) {
+    if (viewMode === 'advanced' && selectedMoveId) {
       const found = solverResult.candidates.find((c) => c.id === selectedMoveId);
       if (found) return { move: found, rank: solverResult.topRecommendations.findIndex((t) => t.id === found.id) + 1 || null };
     }
@@ -369,39 +404,12 @@ export const App: React.FC = () => {
       return { move: solverResult.topRecommendations[0], rank: 1 };
     }
     return { move: null, rank: null };
-  }, [hoveredMoveId, selectedMoveId, solverResult]);
-
-  // Swap Ambiguous Multi-Tile Merge Landing Spot (Before or After Applying Move)
-  const handleSwapAmbiguousLanding = useCallback(
-    (moveId: string, newLandingCell: number) => {
-      setLandingOverrides((prev) => ({
-        ...prev,
-        [moveId]: newLandingCell,
-      }));
-    },
-    []
-  );
+  }, [viewMode, hoveredMoveId, selectedMoveId, solverResult]);
 
   // Apply Recommended Move (Ply 1 Only — Play-Along Loop)
   const handleApplyPly1Move = useCallback(
     (move: CandidateMove) => {
       pushHistory();
-
-      if (move.ply1Sim.merges.length > 0) {
-        const lastMerge = move.ply1Sim.merges[move.ply1Sim.merges.length - 1];
-        const amb = move.ply1Sim.ambiguousMerges[0];
-        setLastAmbiguousContext({
-          preMoveBoard: new Uint8Array(board),
-          preMoveMaxStar: effectiveMaxStar,
-          placedTiles: move.placedTiles,
-          primaryLandingCell: lastMerge.landingCell,
-          alternativeLandingCell: amb ? amb.alternativeCells[0] : null,
-          currentLandingCell: lastMerge.landingCell,
-          mergedStar: move.ply1Sim.nextBoard[lastMerge.landingCell],
-        });
-      } else {
-        setLastAmbiguousContext(null);
-      }
 
       setBoard(move.ply1Sim.nextBoard);
       if (manualMaxStar !== null && move.ply1Sim.nextMaxStar > manualMaxStar) {
@@ -414,12 +422,13 @@ export const App: React.FC = () => {
           shapeId: nextPiece.shapeId,
           rotation: nextPiece.rotation,
           tileStars: [...nextPiece.tileStars],
+          anchorTileIndex: nextPiece.anchorTileIndex ?? 0,
         });
       }
       setSelectedMoveId(null);
       setHoveredMoveId(null);
     },
-    [pushHistory, board, effectiveMaxStar, nextPieceKnown, nextPiece]
+    [pushHistory, manualMaxStar, nextPieceKnown, nextPiece]
   );
 
   // Apply Both Moves (Ply 1 + Best Ply 2)
@@ -439,68 +448,12 @@ export const App: React.FC = () => {
       }
       setSelectedMoveId(null);
       setHoveredMoveId(null);
-      setLastAmbiguousContext(null);
       setToastMessage(
         'Executed both Current Piece & Next Piece! Enter your new pieces below.'
       );
       setTimeout(() => setToastMessage(null), 3500);
     },
-    [handleApplyPly1Move, pushHistory]
-  );
-
-  // Swap Landing Spot from the Post-Move Toast (Section 2.5.3.2)
-  const handlePostMoveSwapLanding = useCallback(() => {
-    if (
-      !lastAmbiguousContext ||
-      lastAmbiguousContext.alternativeLandingCell === null
-    ) {
-      return;
-    }
-    const nextTarget =
-      lastAmbiguousContext.currentLandingCell ===
-      lastAmbiguousContext.primaryLandingCell
-        ? lastAmbiguousContext.alternativeLandingCell
-        : lastAmbiguousContext.primaryLandingCell;
-
-    const reSim = simulatePlacement(
-      lastAmbiguousContext.preMoveBoard,
-      lastAmbiguousContext.preMoveMaxStar,
-      lastAmbiguousContext.placedTiles,
-      nextTarget,
-      fiveTileSuperMerge
-    );
-
-    setBoard(reSim.nextBoard);
-    if (manualMaxStar !== null && reSim.nextMaxStar > manualMaxStar) {
-      setManualMaxStar(reSim.nextMaxStar);
-    }
-    setLastAmbiguousContext({
-      ...lastAmbiguousContext,
-      currentLandingCell: nextTarget,
-      mergedStar: reSim.nextBoard[nextTarget],
-    });
-  }, [lastAmbiguousContext, fiveTileSuperMerge, manualMaxStar]);
-
-  // Apply +1★ Lucky Evolution (or -1★ Step Down) on the merged landing cell
-  const handlePostMoveStarAdjust = useCallback(
-    (delta: 1 | -1) => {
-      if (!lastAmbiguousContext) return;
-      const res = applyPostMergeStarAdjustment(
-        board,
-        effectiveMaxStar,
-        lastAmbiguousContext.currentLandingCell,
-        delta
-      );
-      setBoard(res.nextBoard);
-      if (manualMaxStar !== null && res.nextMaxStar > manualMaxStar) {
-        setManualMaxStar(res.nextMaxStar);
-      }
-      setLastAmbiguousContext({
-        ...lastAmbiguousContext,
-        mergedStar: res.finalStar,
-      });
-    },
-    [lastAmbiguousContext, board, effectiveMaxStar, manualMaxStar]
+    [handleApplyPly1Move, pushHistory, manualMaxStar]
   );
 
   const activePreset = useMemo(
@@ -508,12 +461,34 @@ export const App: React.FC = () => {
     [activePresetId]
   );
 
+  const handleChangeViewMode = useCallback(
+    (mode: 'simple' | 'advanced') => {
+      setViewMode(mode);
+      if (mode === 'simple') {
+        setSelectedMoveId(null);
+        setHoveredMoveId(null);
+        if (activeBrush === 'inspect' || activeBrush === 'popover') {
+          setActiveBrush(1);
+        }
+      }
+    },
+    [activeBrush]
+  );
+
   return (
     <div className="min-h-screen bg-[#0B0C10] text-slate-100 flex flex-col">
       {/* Top Header & 10-Slot Relic Progression Bar */}
       <TopProgressionHeader
-        fiveTileSuperMerge={fiveTileSuperMerge}
-        onToggleFiveTileSuperMerge={setFiveTileSuperMerge}
+        viewMode={viewMode}
+        onChangeViewMode={handleChangeViewMode}
+        hammerAvailable={hammerAvailable}
+        onToggleHammerAvailable={(avail) => {
+          pushHistory();
+          setHammerAvailable(avail);
+          if (!avail && activeBrush === 'hammer') {
+            setActiveBrush(1);
+          }
+        }}
         maxUnlockedStar={effectiveMaxStar}
         isManualMaxStar={manualMaxStar !== null}
         onSelectMaxStar={(star) => {
@@ -537,108 +512,27 @@ export const App: React.FC = () => {
         activePresetId={activePresetId}
       />
 
-      {/* Toast Notification / Post-Move Merge Adjustment Banner */}
-      {(toastMessage || lastAmbiguousContext) && (
+      {/* Toast Notification Banner */}
+      {toastMessage && (
         <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-6 pt-3">
-          {lastAmbiguousContext && (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-cyan-950/80 border border-cyan-400/70 text-xs text-cyan-100 shadow-lg">
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-cyan-300 shrink-0" />
-                <span>
-                  <strong>Merge Applied:</strong> Upgraded{' '}
-                  <strong>{lastAmbiguousContext.mergedStar}★</strong> spawned at{' '}
-                  <strong>
-                    {(() => {
-                      const { col, row } = indexToCoord(
-                        lastAmbiguousContext.currentLandingCell
-                      );
-                      return formatCellCoord(col, row);
-                    })()}
-                  </strong>
-                  . Did it proc a +2★ evolution or land on another square?
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {lastAmbiguousContext.mergedStar < 10 && (
-                  <button
-                    type="button"
-                    onClick={() => handlePostMoveStarAdjust(1)}
-                    className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black flex items-center gap-1 shadow transition-all"
-                    title="Click if the merge evolved +1 extra star in-game (e.g. 1★ → 3★)"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>
-                      +1★ Lucky Evolution (→{' '}
-                      {lastAmbiguousContext.mergedStar + 1}★)
-                    </span>
-                  </button>
-                )}
-
-                {lastAmbiguousContext.mergedStar > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handlePostMoveStarAdjust(-1)}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold border border-slate-600 transition-all"
-                    title="Step down by 1★ if needed"
-                  >
-                    −1★ (→ {lastAmbiguousContext.mergedStar - 1}★)
-                  </button>
-                )}
-
-                {lastAmbiguousContext.alternativeLandingCell !== null && (
-                  <button
-                    type="button"
-                    onClick={handlePostMoveSwapLanding}
-                    className="px-3 py-1 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black flex items-center gap-1.5 shadow transition-all"
-                  >
-                    <ArrowLeftRight className="w-3.5 h-3.5" />
-                    <span>
-                      Swap Landing Spot to{' '}
-                      {(() => {
-                        const target =
-                          lastAmbiguousContext.currentLandingCell ===
-                          lastAmbiguousContext.primaryLandingCell
-                            ? lastAmbiguousContext.alternativeLandingCell!
-                            : lastAmbiguousContext.primaryLandingCell;
-                        const { col, row } = indexToCoord(target);
-                        return formatCellCoord(col, row);
-                      })()}
-                    </span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setLastAmbiguousContext(null)}
-                  className="p-1 text-cyan-300 hover:text-white"
-                  title="Dismiss"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+          <div className="flex items-center justify-between gap-2 px-4 py-2 rounded-xl bg-emerald-950/80 border border-emerald-400/60 text-xs text-emerald-100 shadow-lg">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span className="font-semibold">{toastMessage}</span>
             </div>
-          )}
-
-          {toastMessage && (
-            <div className="mt-2 flex items-center justify-between gap-2 px-4 py-2 rounded-xl bg-emerald-950/80 border border-emerald-400/60 text-xs text-emerald-100 shadow-lg">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-semibold">{toastMessage}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setToastMessage(null)}
-                className="p-1 text-emerald-300 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="p-1 text-emerald-300 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Active Preset Scenario Context Banner */}
-      {activePreset && (
+      {/* Active Preset Scenario Context Banner (Advanced View Only) */}
+      {viewMode === 'advanced' && activePreset && (
         <div className="max-w-[1600px] w-full mx-auto px-3 sm:px-6 pt-3">
           <div className="bg-gradient-to-r from-[#171C2B] via-[#1B2135] to-[#151926] border border-amber-500/35 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-start sm:items-center gap-2.5">
@@ -672,23 +566,42 @@ export const App: React.FC = () => {
           {/* Honeycomb Board (7 of 12 cols on md+) */}
           <div className="md:col-span-7">
             <HoneycombBoard
+              viewMode={viewMode}
               board={board}
               maxUnlockedStar={effectiveMaxStar}
               stragglers={stragglers}
               activeBrush={activeBrush}
               onChangeBrush={setActiveBrush}
               onSetCellStar={handleSetCellStar}
-              previewMove={activePreviewMove.move}
+              hammerAvailable={hammerAvailable}
+              onUseHammer={handleUseHammer}
+              hammerTargetCell={
+                hoveredHammerTarget ??
+                (activeBrush === 'hammer' ||
+                (viewMode === 'simple' &&
+                  hammerAvailable &&
+                  hammerAdvice.shouldUseNow)
+                  ? hammerAdvice.recommendedTarget?.cellIndex ?? null
+                  : null)
+              }
+              previewMove={
+                hoveredHammerTarget !== null &&
+                hammerAdvice.recommendedTarget?.cellIndex ===
+                  hoveredHammerTarget &&
+                hammerAdvice.recommendedTarget.bestMoveAfterHammer
+                  ? hammerAdvice.recommendedTarget.bestMoveAfterHammer
+                  : activePreviewMove.move
+              }
               previewRank={activePreviewMove.rank}
               showPly2Ghost={showPly2Ghost}
               onToggleShowPly2Ghost={() => setShowPly2Ghost((v) => !v)}
-              onSelectAlternateLanding={handleSwapAmbiguousLanding}
             />
           </div>
 
           {/* Piece Queue Composer (5 of 12 cols on md+, directly to the right of the Board!) */}
           <div className="md:col-span-5">
             <PieceComposer
+              viewMode={viewMode}
               currentPiece={currentPiece}
               onChangeCurrentPiece={(next) => {
                 pushHistory();
@@ -712,6 +625,7 @@ export const App: React.FC = () => {
         {/* Right Column (5 cols on lg): Ranked Advisor Recommendations Panel */}
         <div className="lg:col-span-5 lg:sticky lg:top-3">
           <RecommendationsPanel
+            viewMode={viewMode}
             currentPiece={currentPiece}
             nextPiece={nextPiece}
             nextPieceKnown={nextPieceKnown}
@@ -719,31 +633,43 @@ export const App: React.FC = () => {
             allCandidates={solverResult.candidates}
             lethalMoves={solverResult.lethalMoves}
             elapsedMs={solverResult.elapsedMs}
+            hammerAvailable={hammerAvailable}
+            hammerAdvice={hammerAdvice}
+            onUseHammer={handleUseHammer}
+            onToggleHammerAvailable={(avail) => {
+              pushHistory();
+              setHammerAvailable(avail);
+              if (!avail && activeBrush === 'hammer') {
+                setActiveBrush(1);
+              }
+            }}
+            onHoverHammerTarget={setHoveredHammerTarget}
             selectedMoveId={selectedMoveId}
             hoveredMoveId={hoveredMoveId}
             onSelectMove={setSelectedMoveId}
             onHoverMove={setHoveredMoveId}
             onApplyPly1Move={handleApplyPly1Move}
             onApplyBothMoves={handleApplyBothMoves}
-            onSwapAmbiguousLanding={handleSwapAmbiguousLanding}
           />
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[#1E2334] bg-[#0D0F16] py-3 px-6 text-center text-xs text-slate-500">
-        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>
-              EF2 Relic Forge Advisor • Authentic 5-4-5-4-5 Staggered Honeycomb & 2-Ply Cascade Solver
+      {/* Footer (Advanced View Only) */}
+      {viewMode === 'advanced' && (
+        <footer className="border-t border-[#1E2334] bg-[#0D0F16] py-3 px-6 text-center text-xs text-slate-500">
+          <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>
+                EF2 Relic Forge Advisor • Authentic 5-4-5-4-5 Staggered Honeycomb & 2-Ply Cascade Solver
+              </span>
             </span>
-          </span>
-          <span>
-            Active Spawn Pool Rule: [max(1, M−3) .. M] • 60° Cube Rotation Engine
-          </span>
-        </div>
-      </footer>
+            <span>
+              Active Spawn Pool Rule: [max(1, M−3) .. M] • 60° Cube Rotation Engine
+            </span>
+          </div>
+        </footer>
+      )}
     </div>
   );
 };

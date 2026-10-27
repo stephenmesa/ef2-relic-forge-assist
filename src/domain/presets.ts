@@ -110,6 +110,7 @@ export function encodeStateToHash(state: {
   currentPiece: PresetScenario['currentPiece'];
   nextPiece: PresetScenario['nextPiece'];
   nextPieceKnown: boolean;
+  hammerAvailable?: boolean;
 }): string {
   const payload = {
     u: state.maxUnlockedStar,
@@ -118,13 +119,16 @@ export function encodeStateToHash(state: {
       state.currentPiece.shapeId,
       state.currentPiece.rotation,
       state.currentPiece.tileStars,
+      state.currentPiece.anchorTileIndex ?? 0,
     ],
     n: [
       state.nextPiece.shapeId,
       state.nextPiece.rotation,
       state.nextPiece.tileStars,
+      state.nextPiece.anchorTileIndex ?? 0,
     ],
     k: state.nextPieceKnown ? 1 : 0,
+    h: state.hammerAvailable === false ? 0 : 1,
   };
   return btoa(JSON.stringify(payload));
 }
@@ -135,6 +139,7 @@ export function decodeStateFromHash(hashStr: string): {
   currentPiece: PresetScenario['currentPiece'];
   nextPiece: PresetScenario['nextPiece'];
   nextPieceKnown: boolean;
+  hammerAvailable: boolean;
 } | null {
   try {
     const clean = hashStr.replace(/^#/, '').trim();
@@ -150,13 +155,18 @@ export function decodeStateFromHash(hashStr: string): {
         shapeId: parsed.c?.[0] || 'pair',
         rotation: Number(parsed.c?.[1]) || 0,
         tileStars: Array.isArray(parsed.c?.[2]) ? parsed.c[2] : [2, 3],
+        anchorTileIndex:
+          typeof parsed.c?.[3] === 'number' ? parsed.c[3] : 0,
       },
       nextPiece: {
         shapeId: parsed.n?.[0] || 'bent3',
         rotation: Number(parsed.n?.[1]) || 0,
         tileStars: Array.isArray(parsed.n?.[2]) ? parsed.n[2] : [2, 3, 2],
+        anchorTileIndex:
+          typeof parsed.n?.[3] === 'number' ? parsed.n[3] : 0,
       },
       nextPieceKnown: parsed.k !== 0,
+      hammerAvailable: parsed.h !== 0,
     };
   } catch {
     return null;

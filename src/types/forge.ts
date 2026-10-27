@@ -38,6 +38,7 @@ export interface PieceConfig {
   shapeId: PieceShapeId;
   rotation: number; // 0..5 (60° CW steps)
   tileStars: number[]; // length matches shape's tileCount, values 1..10
+  anchorTileIndex?: number; // 0..(tileCount - 1): the tile marked with the in-game dot ● where merged relics land (defaults to 0)
 }
 
 export interface PlacedTile {
@@ -46,6 +47,7 @@ export interface PlacedTile {
   col: number;
   row: number;
   star: number; // 1..10
+  isAnchor?: boolean; // true if this tile has the piece's in-game anchor dot ●
 }
 
 export interface MergeStep {
@@ -54,14 +56,6 @@ export interface MergeStep {
   toStar: number;
   mergedCells: number[]; // All cell indices cleared in this merge step
   landingCell: number; // The cell index where toStar spawns
-  alternativeLandingCells: number[]; // If 2+ newly placed tiles of same star merged in step 0
-}
-
-export interface AmbiguousMergeInfo {
-  fromStar: number;
-  toStar: number;
-  primaryCell: number;
-  alternativeCells: number[];
 }
 
 export interface SimulationResult {
@@ -73,7 +67,6 @@ export interface SimulationResult {
   totalTilesCleared: number;
   unlockedNewMaxTier: boolean;
   newlyRetiredStars: number[];
-  ambiguousMerges: AmbiguousMergeInfo[];
 }
 
 export interface StragglerCellInfo {
@@ -128,6 +121,38 @@ export interface CandidateMove {
   warnings: string[];
   highlights: string[];
   scoreBreakdown: { label: string; value: number }[];
+}
+
+export type HammerUrgency =
+  | 'critical-survival' // Board is locked / 0 safe moves or 0 3-triangle slots; hammer saves the run now
+  | 'high-value-cascade' // Hammering unblocks a tier-up or multi-step chain cascade on this turn
+  | 'good-cleanup' // Mid/late game (especially M>=7★ where no new tiers retire) clearing a permanent dead space
+  | 'hold-save'; // Board is healthy or low-star tiles can still be naturally merged; save your 1× hammer
+
+export interface HammerCandidateTarget {
+  cellIndex: number;
+  col: number;
+  row: number;
+  star: number;
+  isDeadRetired: boolean;
+  isAtRisk: boolean;
+  netGainScore: number;
+  bestMoveAfterHammer: CandidateMove | null;
+  savesFromGameOver: boolean;
+  unlocksNewTierOrCascade: boolean;
+  clearsLastPermanentDeadSpace: boolean;
+  triangleSlotsGained: number;
+  threeTileSlotsGained: number;
+  reason: string;
+}
+
+export interface HammerAdvice {
+  urgency: HammerUrgency;
+  shouldUseNow: boolean;
+  headline: string;
+  rationale: string;
+  recommendedTarget: HammerCandidateTarget | null;
+  alternativeTargets: HammerCandidateTarget[];
 }
 
 export interface PresetScenario {

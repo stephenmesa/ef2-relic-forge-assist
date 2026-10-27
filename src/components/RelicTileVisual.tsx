@@ -6,6 +6,7 @@ interface RelicTileVisualProps {
   size?: 'xs' | 'sm' | 'md' | 'lg';
   isGhost?: boolean;
   ghostStep?: 1 | 2;
+  isAnchorDot?: boolean;
   showName?: boolean;
   className?: string;
 }
@@ -583,6 +584,7 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
   size = 'md',
   isGhost = false,
   ghostStep = 1,
+  isAnchorDot = false,
   showName = false,
   className = '',
 }) => {
@@ -690,7 +692,7 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
         </>
       )}
 
-      {/* Top-Left Compact Numeric Level Pill */}
+      {/* Top-Left Compact Numeric Level Pill + Top-Right In-Game Anchor Dot (●) */}
       <div className="relative z-10 w-full flex items-center justify-between px-1 pt-0.5 leading-none">
         <span
           className={`font-black tracking-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)] ${
@@ -699,6 +701,14 @@ export const RelicTileVisual: React.FC<RelicTileVisualProps> = ({
         >
           {star}
         </span>
+        {isAnchorDot && (
+          <span
+            title="Anchor Relic Dot (●): Merged relic lands on this square"
+            className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-slate-950/85 border border-amber-300 shadow-[0_0_6px_rgba(251,191,36,0.95)]"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+          </span>
+        )}
       </div>
 
       {/* Center Detailed Relic Illustration */}

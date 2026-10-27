@@ -212,11 +212,26 @@ export function resolvePiecePlacement(
   rotation: number,
   tileStars: number[],
   anchorCol: number,
-  anchorRow: number
-): { tileIndex: number; col: number; row: number; cellIndex: number; star: number }[] | null {
+  anchorRow: number,
+  anchorTileIndex?: number
+): {
+  tileIndex: number;
+  col: number;
+  row: number;
+  cellIndex: number;
+  star: number;
+  isAnchor?: boolean;
+}[] | null {
   const [ax, ay, az] = offsetToCube(anchorCol, anchorRow);
   const rotatedOffsets = getRotatedPieceCubeOffsets(shapeId, rotation);
-  const result: { tileIndex: number; col: number; row: number; cellIndex: number; star: number }[] = [];
+  const result: {
+    tileIndex: number;
+    col: number;
+    row: number;
+    cellIndex: number;
+    star: number;
+    isAnchor?: boolean;
+  }[] = [];
 
   for (let i = 0; i < rotatedOffsets.length; i++) {
     const [dx, dy, dz] = rotatedOffsets[i];
@@ -230,6 +245,9 @@ export function resolvePiecePlacement(
       row,
       cellIndex: cellToIndex(col, row),
       star: tileStars[i] ?? 1,
+      ...(anchorTileIndex !== undefined
+        ? { isAnchor: i === anchorTileIndex }
+        : {}),
     });
   }
 

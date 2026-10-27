@@ -1,5 +1,4 @@
 import {
-  AmbiguousMergeInfo,
   MergeStep,
   PlacedTile,
   SimulationResult,
@@ -90,27 +89,25 @@ function selectMergeLandingCell(
   placedByCell: Map<number, PlacedTile>,
   pieceTileCount: number,
   upgradedCells: Set<number>,
-  neighborsTable: number[][],
-  preferredLandingCell?: number
-): { primary: number; alternatives: number[] } {
+  neighborsTable: number[][]
+): number {
   if (candidates.length === 1) {
-    return { primary: candidates[0], alternatives: [] };
-  }
-
-  if (preferredLandingCell !== undefined && candidates.includes(preferredLandingCell)) {
-    return {
-      primary: preferredLandingCell,
-      alternatives: candidates.filter((c) => c !== preferredLandingCell),
-    };
+    return candidates[0];
   }
 
   // If one of the candidates is already an upgraded cascade cell from an earlier step, keep it on that cell
   const cascadedCandidate = candidates.find((c) => upgradedCells.has(c));
   if (cascadedCandidate !== undefined) {
-    return {
-      primary: cascadedCandidate,
-      alternatives: candidates.filter((c) => c !== cascadedCandidate),
-    };
+    return cascadedCandidate;
+  }
+
+  // If the user/game marked a specific tile of the piece with the Anchor Dot (●) (`isAnchor === true`)
+  // and that anchor tile is part of this merging group, the merged relic lands on that anchor tile!
+  const explicitAnchorCandidate = candidates.find(
+    (c) => placedByCell.get(c)?.isAnchor === true
+  );
+  if (explicitAnchorCandidate !== undefined) {
+    return explicitAnchorCandidate;
   }
 
   const nextStar = fromStar + 1;
@@ -181,20 +178,18 @@ function selectMergeLandingCell(
     return a.col - b.col;
   });
 
-  const primary = scored[0].cellIdx;
-  const alternatives = scored.slice(1).map((s) => s.cellIdx);
-  return { primary, alternatives };
+  return scored[0].cellIdx;
 }
 
 /**
  * Pure deterministic placement & recursive chain cascade simulator.
+ * - 3 or 4 connected relics evolve +1★
+ * - 5+ connected relics evolve +2★ (super evolution)
  */
 export function simulatePlacement(
   board: Uint8Array,
   maxUnlockedStar: number,
-  placedTiles: PlacedTile[],
-  preferredLandingCell?: number,
-  fiveTileSuperMerge: boolean = true
+  placedTiles: PlacedTile[]
 ): SimulationResult {
   const neighborsTable = getPrecomputedNeighbors();
   const prePlacementBoard = new Uint8Array(board);
@@ -211,7 +206,6 @@ export function simulatePlacement(
   }
 
   const merges: MergeStep[] = [];
-  const ambiguousMerges: AmbiguousMergeInfo[] = [];
   let totalTilesCleared = 0;
 
   // Track chain depth per anchor cell
@@ -259,11 +253,11 @@ export function simulatePlacement(
     candidateComponents.sort((a, b) => a.star - b.star);
     const chosen = candidateComponents[0];
     const fromStar = chosen.star;
-    const starJump =
-      fiveTileSuperMerge && chosen.component.length >= 5 ? 2 : 1;
+    // Super evolution rule: 5+ relics evolve +2 levels; 3 or 4 relics evolve +1 level
+    const starJump = chosen.component.length >= 5 ? 2 : 1;
     const toStar = Math.min(10, fromStar + starJump);
 
-    const { primary: landingCell, alternatives } = selectMergeLandingCell(
+    const landingCell = selectMergeLandingCell(
       chosen.anchorsInComp,
       chosen.component,
       fromStar,
@@ -272,8 +266,7 @@ export function simulatePlacement(
       placedByCell,
       placedTiles.length,
       upgradedCells,
-      neighborsTable,
-      preferredLandingCell
+      neighborsTable
     );
 
     const prevDepth = Math.max(
@@ -281,15 +274,6 @@ export function simulatePlacement(
       ...chosen.anchorsInComp.map((c) => chainDepthByCell.get(c) ?? 0)
     );
     const newDepth = prevDepth + 1;
-
-    if (alternatives.length > 0 && prevDepth === 0) {
-      ambiguousMerges.push({
-        fromStar,
-        toStar,
-        primaryCell: landingCell,
-        alternativeCells: alternatives,
-      });
-    }
 
     // Remove all tiles in the merging component
     for (const c of chosen.component) {
@@ -313,7 +297,6 @@ export function simulatePlacement(
       toStar,
       mergedCells: chosen.component,
       landingCell,
-      alternativeLandingCells: alternatives,
     });
   }
 
@@ -348,57 +331,6 @@ export function simulatePlacement(
     totalTilesCleared,
     unlockedNewMaxTier: nextMaxStar > maxUnlockedStar,
     newlyRetiredStars,
-    ambiguousMerges,
-  };
-}
-
-/**
- * Applies a "+1★ Lucky Evolution" (or "-1★ Standard") adjustment to a newly merged landing cell
- * on the board and automatically resolves any resulting chain cascades on that cell.
- */
-export function applyPostMergeStarAdjustment(
-  board: Uint8Array,
-  maxUnlockedStar: number,
-  landingCell: number,
-  deltaStar: 1 | -1
-): { nextBoard: Uint8Array; nextMaxStar: number; finalStar: number } {
-  const neighborsTable = getPrecomputedNeighbors();
-  const nextBoard = new Uint8Array(board);
-  const currentStar = nextBoard[landingCell];
-  if (currentStar === 0) {
-    return { nextBoard, nextMaxStar: maxUnlockedStar, finalStar: 0 };
-  }
-
-  const adjustedStar = Math.max(1, Math.min(10, currentStar + deltaStar));
-  nextBoard[landingCell] = adjustedStar;
-
-  // If bumped up (+1★), check if it now triggers a cascade with adjacent tiles of the same star
-  if (deltaStar > 0) {
-    let safety = 0;
-    while (safety++ < 15) {
-      const star = nextBoard[landingCell];
-      if (star === 0 || star >= 10) break;
-      const comp = getConnectedComponent(nextBoard, landingCell, neighborsTable);
-      if (comp.length < 3) break;
-      for (const c of comp) {
-        nextBoard[c] = 0;
-      }
-      nextBoard[landingCell] = Math.min(10, star + 1);
-    }
-  }
-
-  let nextMaxStar = Math.max(4, maxUnlockedStar);
-  const validIndices = getValidCellIndices();
-  for (const idx of validIndices) {
-    if (nextBoard[idx] > nextMaxStar) {
-      nextMaxStar = nextBoard[idx];
-    }
-  }
-
-  return {
-    nextBoard,
-    nextMaxStar,
-    finalStar: nextBoard[landingCell],
   };
 }
 

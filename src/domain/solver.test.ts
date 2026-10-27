@@ -11,10 +11,9 @@ import {
 import { buildBoardFromPreset, PRESET_SCENARIOS } from './presets';
 import {
   analyzeShapeMobility,
-  applyPostMergeStarAdjustment,
   simulatePlacement,
 } from './simulator';
-import { solveBestMoves } from './solver';
+import { evaluateHammerAdvice, solveBestMoves } from './solver';
 
 describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
   it('1. Honeycomb Adjacency Verification: Even and Odd column 6-neighbor lookup matches Section 2.1', () => {
@@ -225,35 +224,36 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     ]);
   });
 
-  it('8. 5-Tile Super Merge (+2★ Jump) & Post-Merge Lucky +1★ Evolution Adjustment', () => {
+  it('8. 5-Tile Super Evolution (+2★ Jump): 5+ connected relics evolve +2★ instead of +1★ (3 or 4 relics)', () => {
     const board = new Uint8Array(25);
     board[cellToIndex(1, 1)] = 1; // B2 = 1★
     board[cellToIndex(1, 2)] = 1; // B3 = 1★
     board[cellToIndex(2, 1)] = 3; // C2 = 3★
     board[cellToIndex(2, 2)] = 3; // C3 = 3★
 
-    // Place 3-tile [1★, 1★, 1★] at B4 (1,3), C4 (2,3), C5 (2,4) -> 5 total 1★ tiles!
-    const placed = [
-      { tileIndex: 0, col: 1, row: 3, cellIndex: cellToIndex(1, 3), star: 1 }, // B4
-      { tileIndex: 1, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 1 }, // C4
-      { tileIndex: 2, col: 2, row: 4, cellIndex: cellToIndex(2, 4), star: 1 }, // C5
+    // Place 3-tile [1★, 1★, 1★] at B4 (1,3), C4 (2,3), C5 (2,4) with Anchor Dot (●) on C4 -> 5 total 1★ tiles!
+    const placed5 = [
+      { tileIndex: 0, col: 1, row: 3, cellIndex: cellToIndex(1, 3), star: 1, isAnchor: false }, // B4
+      { tileIndex: 1, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 1, isAnchor: true },  // C4 ●
+      { tileIndex: 2, col: 2, row: 4, cellIndex: cellToIndex(2, 4), star: 1, isAnchor: false }, // C5
     ];
 
-    const simSuper = simulatePlacement(board, 4, placed, undefined, true);
+    const simSuper = simulatePlacement(board, 4, placed5);
     expect(simSuper.merges[0].fromStar).toBe(1);
     expect(simSuper.merges[0].toStar).toBe(3); // 5× 1★ -> 3★ (+2★ jump!)
-    expect(simSuper.merges[0].landingCell).toBe(cellToIndex(1, 3)); // Lands at B4!
+    expect(simSuper.merges[0].landingCell).toBe(cellToIndex(2, 3)); // Lands on Anchor Dot ● at C4!
+    expect(simSuper.merges[1].fromStar).toBe(3);
+    expect(simSuper.merges[1].toStar).toBe(4); // Chains into C2-C3 (3★ -> 4★)!
 
-    // Also test +1★ Lucky Evolution helper on a standard +1★ merge
-    const simStd = simulatePlacement(board, 4, placed, undefined, false);
-    expect(simStd.merges[0].toStar).toBe(2);
-    const lucky = applyPostMergeStarAdjustment(
-      simStd.nextBoard,
-      4,
-      cellToIndex(1, 3),
-      1
-    );
-    expect(lucky.finalStar).toBe(3);
+    // Contrast with 4 connected relics (e.g. [1★, 1★, 2★]), which evolve +1★ (1★ -> 2★)
+    const placed4 = [
+      { tileIndex: 0, col: 1, row: 3, cellIndex: cellToIndex(1, 3), star: 1, isAnchor: true },  // B4 ●
+      { tileIndex: 1, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 1, isAnchor: false }, // C4
+      { tileIndex: 2, col: 2, row: 4, cellIndex: cellToIndex(2, 4), star: 2, isAnchor: false }, // C5
+    ];
+    const simFour = simulatePlacement(board, 4, placed4);
+    expect(simFour.merges[0].fromStar).toBe(1);
+    expect(simFour.merges[0].toStar).toBe(2); // 4× 1★ -> 2★ (+1★ standard evolution)
   });
 
   it('9. Anti-Hoarding & 3-Triangle Shape Protection: Unlocks 5★ rather than hoarding disconnected 4★ islands even when 1★ remains on board', () => {
@@ -323,5 +323,105 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     expect(sim.merges[0].landingCell).toBe(cellToIndex(2, 1)); // Lands at C2 to chain with D1-D2!
     expect(sim.merges[1].fromStar).toBe(5);
     expect(sim.merges[1].toStar).toBe(6);
+  });
+
+  it('11. Anchor Relic Dot (●) on Piece: Deterministically lands merge on marked anchor tile & rotates 180° to chain', () => {
+    // Board has two 5★ Red Swords at B1 (1,0) and C1 (2,0) which touch C2 (2,1), NOT C4 (2,3).
+    // Suppose the player has a 3-Line [4★, 4★, 4★] where T2 (initially bottom at rotation 0) has the Anchor Dot (●).
+    const board = new Uint8Array(25);
+    board[cellToIndex(1, 0)] = 5; // B1 = 5★
+    board[cellToIndex(2, 0)] = 5; // C1 = 5★
+
+    // At rotation 0 (T1 at C2, T0 at C3, T2 ● at C4), the merge MUST land on T2 ● at C4 (no chain).
+    const placedRot0 = resolvePiecePlacement('line3', 0, [4, 4, 4], 2, 2, 2)!;
+    const simRot0 = simulatePlacement(board, 5, placedRot0);
+    expect(simRot0.merges).toHaveLength(1);
+    expect(simRot0.merges[0].landingCell).toBe(cellToIndex(2, 3)); // Lands on T2 ● at C4!
+
+    // At rotation 3 (180° flip: T2 ● is now at top C2, T0 at C3, T1 at C4), the merge lands on T2 ● at C2 and chains 4★ -> 5★ -> 6★!
+    const placedRot3 = resolvePiecePlacement('line3', 3, [4, 4, 4], 2, 2, 2)!;
+    const simRot3 = simulatePlacement(board, 5, placedRot3);
+    expect(simRot3.merges).toHaveLength(2);
+    expect(simRot3.merges[0].landingCell).toBe(cellToIndex(2, 1)); // Lands on T2 ● at C2!
+    expect(simRot3.merges[1].toStar).toBe(6);
+
+    // Verify solveBestMoves recommends rotating to put T2 ● at C2 to trigger the 4★ -> 5★ -> 6★ chain!
+    const solved = solveBestMoves(
+      board,
+      5,
+      { shapeId: 'line3', rotation: 0, tileStars: [4, 4, 4], anchorTileIndex: 2 },
+      { shapeId: 'pair', rotation: 0, tileStars: [3, 4], anchorTileIndex: 0 },
+      false
+    );
+    expect(solved.topRecommendations[0].ply1Sim.nextMaxStar).toBe(6);
+  });
+
+  it('12. Single-Use Run Hammer Advisor: Advises HOLD early vs USE NOW for 7★+ final dead space or board lock', () => {
+    // Case A: Early game (M=5★), plenty of open space (20 empty cells), 1 corner dead 1★ at A5 -> HOLD HAMMER
+    const earlyBoard = new Uint8Array(25);
+    earlyBoard[cellToIndex(0, 4)] = 1; // A5 = 1★ (retired at M=5★, but 22 empty cells remain)
+    earlyBoard[cellToIndex(2, 2)] = 5; // C3 = 5★
+    earlyBoard[cellToIndex(2, 1)] = 3; // C2 = 3★
+    const earlyPiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [2, 3], anchorTileIndex: 0 };
+    const earlySolved = solveBestMoves(earlyBoard, 5, earlyPiece, earlyPiece, false);
+    const earlyAdvice = evaluateHammerAdvice(
+      earlyBoard,
+      5,
+      earlyPiece,
+      earlyPiece,
+      false,
+      earlySolved
+    );
+    expect(earlyAdvice.shouldUseNow).toBe(false);
+    expect(earlyAdvice.urgency).toBe('hold-save');
+
+    // Case B: Late game (M=7★, where 4★ never retires at 8★+) with 1 final retired 2★ tile at C3 -> USE HAMMER NOW (Optimal Cleanup)
+    const lateBoard = new Uint8Array(25);
+    lateBoard[cellToIndex(2, 2)] = 2; // C3 = 2★ (only retired tile left on board at M=7★)
+    lateBoard[cellToIndex(1, 1)] = 7; // B2 = 7★
+    lateBoard[cellToIndex(3, 1)] = 5; // D2 = 5★
+    const latePiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [4, 5], anchorTileIndex: 0 };
+    const lateSolved = solveBestMoves(lateBoard, 7, latePiece, latePiece, false);
+    const lateAdvice = evaluateHammerAdvice(
+      lateBoard,
+      7,
+      latePiece,
+      latePiece,
+      false,
+      lateSolved
+    );
+    expect(lateAdvice.shouldUseNow).toBe(true);
+    expect(lateAdvice.urgency).toBe('good-cleanup');
+    expect(lateAdvice.recommendedTarget?.cellIndex).toBe(cellToIndex(2, 2));
+    expect(lateAdvice.recommendedTarget?.clearsLastPermanentDeadSpace).toBe(true);
+  });
+
+  it('13. No-Hammer Dead-Relic Protection: Avoids merging to 8★ while a 3★ relic is on the board when Hammer is already used', () => {
+    // Board at M=6★ has four 6★ relics (ready for a 5× 6★ -> 8★ super merge) AND a 3★ relic at A4 (0,3)
+    const board = new Uint8Array(25);
+    board[cellToIndex(0, 3)] = 3; // A4 = 3★ (will become dead if we jump to 8★!)
+    board[cellToIndex(2, 0)] = 6; // C1 = 6★
+    board[cellToIndex(2, 1)] = 6; // C2 = 6★
+    board[cellToIndex(3, 1)] = 6; // D2 = 6★
+    board[cellToIndex(3, 2)] = 6; // D3 = 6★
+
+    // Current Piece has [6★, 4★], Next Piece has [3★, 3★] (which can clear A4 if we wait!)
+    const currentPiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [6, 4], anchorTileIndex: 0 };
+    const nextPiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [3, 3], anchorTileIndex: 0 };
+
+    // With hammerAvailable = false (hammer already used), the #1 Best Move MUST NOT merge to 8★ and strand the 3★ relic!
+    const resNoHammer = solveBestMoves(
+      board,
+      6,
+      currentPiece,
+      nextPiece,
+      false,
+      false // hammerAvailable = false
+    );
+
+    const bestMove = resNoHammer.topRecommendations[0];
+    expect(bestMove.ply1Sim.nextMaxStar).toBe(6);
+    expect(bestMove.trapsRetiredTilesCount).toBe(0);
+    expect(bestMove.deadSpacesAfter).toBe(0);
   });
 });

@@ -64,6 +64,12 @@ export const MiniPiecePreview: React.FC<MiniPiecePreviewProps> = ({
         const dxPx = (vc.vx - centerX) * stepPx;
         const dyPx = (vc.vy - centerY) * stepPx;
         const isSelected = selectedTileIndex === idx;
+        const effectiveAnchorIdx =
+          piece.anchorTileIndex !== undefined &&
+          piece.anchorTileIndex < visualCoords.length
+            ? piece.anchorTileIndex
+            : 0;
+        const isAnchor = idx === effectiveAnchorIdx;
 
         return (
           <button
@@ -82,21 +88,25 @@ export const MiniPiecePreview: React.FC<MiniPiecePreviewProps> = ({
                 ? 'ring-2 ring-amber-300 z-20 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]'
                 : 'z-10'
             }`}
-            title={`Tile T${idx} (${star}★) — Click to select and set star level`}
+            title={`Tile T${idx} (${star}★)${
+              isAnchor ? ' • Anchor Relic Dot (●) Merge Target' : ''
+            } — Click to select and set star level`}
           >
             <RelicTileVisual
               star={star}
               size={size === 'sm' ? 'xs' : 'sm'}
+              isAnchorDot={isAnchor}
               className="w-full h-full"
             />
             <span
-              className={`absolute -top-2 -right-1.5 px-1 py-0.2 rounded text-[9px] font-black leading-tight shadow ${
-                idx === 0
-                  ? 'bg-amber-400 text-slate-950'
+              className={`absolute -top-2 -right-1.5 px-1 py-0.2 rounded text-[9px] font-black leading-tight shadow flex items-center gap-0.5 ${
+                isAnchor
+                  ? 'bg-amber-400 text-slate-950 ring-1 ring-amber-200'
                   : 'bg-slate-800 text-slate-200 border border-slate-600'
               }`}
             >
-              T{idx}
+              <span>T{idx}</span>
+              {isAnchor && <span className="text-[8px]">●</span>}
             </span>
           </button>
         );
@@ -106,6 +116,7 @@ export const MiniPiecePreview: React.FC<MiniPiecePreviewProps> = ({
 };
 
 interface SinglePieceEditorCardProps {
+  viewMode: 'simple' | 'advanced';
   title: string;
   badgeText: string;
   badgeColor: string;
@@ -118,6 +129,7 @@ interface SinglePieceEditorCardProps {
 }
 
 const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
+  viewMode,
   title,
   badgeText,
   badgeColor,
@@ -128,12 +140,18 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
   disabled = false,
   headerRight,
 }) => {
+  const isAdvanced = viewMode === 'advanced';
   const [selectedTileIdx, setSelectedTileIdx] = useState<number>(0);
   const [showAllStars, setShowAllStars] = useState(false);
 
   const shapeSpec = PIECE_SHAPES[piece.shapeId];
   const safeSelectedIdx =
     selectedTileIdx < shapeSpec.tileCount ? selectedTileIdx : 0;
+  const effectiveAnchorIdx =
+    piece.anchorTileIndex !== undefined &&
+    piece.anchorTileIndex < shapeSpec.tileCount
+      ? piece.anchorTileIndex
+      : 0;
 
   const activePool = getActiveSpawnPool(maxUnlockedStar);
   const legacyBoundaryStar =
@@ -146,10 +164,15 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
       { length: newCount },
       (_, i) => piece.tileStars[i] ?? defaultStar
     );
+    const nextAnchor =
+      piece.anchorTileIndex !== undefined && piece.anchorTileIndex < newCount
+        ? piece.anchorTileIndex
+        : 0;
     onChangePiece({
       shapeId: newShapeId,
       rotation: 0,
       tileStars: nextStars,
+      anchorTileIndex: nextAnchor,
     });
     if (selectedTileIdx >= newCount) {
       setSelectedTileIdx(0);
@@ -164,12 +187,20 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
     });
   };
 
+  const handleSetAnchorTile = (tileIdx: number) => {
+    onChangePiece({
+      ...piece,
+      anchorTileIndex: tileIdx,
+    });
+  };
+
   const handleSetTileStar = (tileIdx: number, star: number) => {
     const nextStars = [...piece.tileStars];
     nextStars[tileIdx] = star;
     onChangePiece({
       ...piece,
       tileStars: nextStars,
+      anchorTileIndex: effectiveAnchorIdx,
     });
     // Automatically advance selection to next tile in piece for rapid 1-2-3 entry!
     if (shapeSpec.tileCount > 1) {
@@ -181,6 +212,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
     onChangePiece({
       ...piece,
       tileStars: Array.from({ length: shapeSpec.tileCount }, () => star),
+      anchorTileIndex: effectiveAnchorIdx,
     });
   };
 
@@ -196,6 +228,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
       shapeId: randomShape,
       rotation: Math.floor(Math.random() * 6),
       tileStars: randomStars,
+      anchorTileIndex: 0,
     });
     setSelectedTileIdx(0);
   };
@@ -218,23 +251,27 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
         </div>
         <div className="flex items-center gap-1">
           {headerRight}
-          <button
-            type="button"
-            onClick={handleRandomizeActivePiece}
-            className="px-2 py-0.5 rounded-md bg-[#1E2436] hover:bg-[#283048] text-slate-300 text-[10px] font-semibold flex items-center gap-1 border border-slate-700"
-            title="Roll random piece from active spawn pool"
-          >
-            <Shuffle className="w-3 h-3" />
-            <span>Roll</span>
-          </button>
+          {isAdvanced && (
+            <button
+              type="button"
+              onClick={handleRandomizeActivePiece}
+              className="px-2 py-0.5 rounded-md bg-[#1E2436] hover:bg-[#283048] text-slate-300 text-[10px] font-semibold flex items-center gap-1 border border-slate-700"
+              title="Roll random piece from active spawn pool"
+            >
+              <Shuffle className="w-3 h-3" />
+              <span>Roll</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Shape Selector Pills (6 Shapes with Visual Mini-Diagrams) */}
-      <div className="grid grid-cols-6 gap-1">
+      {/* Shape Selector Pills (5 Shapes with Visual Mini-Diagrams) */}
+      <div className="grid grid-cols-5 gap-1">
         {PIECE_SHAPE_ORDER.map((shapeId) => {
           const spec = PIECE_SHAPES[shapeId];
-          const isSelected = piece.shapeId === shapeId;
+          const isSelected =
+            piece.shapeId === shapeId ||
+            (shapeId === 'bent3' && piece.shapeId === 'chevron3');
           return (
             <button
               key={shapeId}
@@ -266,13 +303,6 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
                     <rect x="9" y="0.5" width="5" height="5" rx="1" />
                     <rect x="9" y="6.5" width="5" height="5" rx="1" />
                     <rect x="9" y="12.5" width="5" height="5" rx="1" />
-                  </>
-                )}
-                {shapeId === 'chevron3' && (
-                  <>
-                    <rect x="9" y="2" width="6" height="6" rx="1.2" />
-                    <rect x="2" y="9" width="6" height="6" rx="1.2" />
-                    <rect x="16" y="9" width="6" height="6" rx="1.2" />
                   </>
                 )}
                 {shapeId === 'bent3' && (
@@ -324,9 +354,11 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
             <div className="text-[10px] font-bold text-amber-200 truncate">
               {shapeSpec.rotationLabels[piece.rotation]}
             </div>
-            <div className="text-[9px] text-slate-400">
-              Step {piece.rotation} ({piece.rotation * 60}°) • All 6 checked
-            </div>
+            {isAdvanced && (
+              <div className="text-[9px] text-slate-400">
+                Step {piece.rotation} ({piece.rotation * 60}°) • All 6 checked
+              </div>
+            )}
           </div>
 
           <button
@@ -342,13 +374,14 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
         </div>
       </div>
 
-      {/* Per-Tile Star Assignment Section */}
+      {/* Per-Tile Star Assignment & Anchor Dot (●) Selector Section */}
       <div className="bg-[#0E111A] rounded-xl p-2 border border-[#242A3E] space-y-1.5">
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-1">
             {Array.from({ length: shapeSpec.tileCount }, (_, idx) => {
               const star = piece.tileStars[idx] ?? 1;
               const isSelected = safeSelectedIdx === idx;
+              const isAnchor = effectiveAnchorIdx === idx;
               return (
                 <button
                   key={idx}
@@ -359,8 +392,19 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
                       ? 'bg-amber-500/25 text-amber-200 border-amber-400'
                       : 'bg-[#171B28] text-slate-400 border-slate-700 hover:text-slate-200'
                   }`}
+                  title={`Select Tile T${idx} to assign its relic tier${
+                    isAnchor ? ' (Currently marked as Anchor Dot ●)' : ''
+                  }`}
                 >
-                  <span>T{idx}:</span>
+                  <span>T{idx}</span>
+                  {isAnchor && (
+                    <span
+                      className="text-amber-300 text-[9px] leading-none"
+                      title="Anchor Dot (●): Merged relic lands on this tile"
+                    >
+                      ●
+                    </span>
+                  )}
                   <span
                     className="px-1 rounded text-white font-black text-[10px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
                     style={getRelicSwatchStyle(star)}
@@ -380,6 +424,40 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
             {showAllStars ? 'Active Pool' : 'All 1★–10★'}
           </button>
         </div>
+
+        {/* Anchor Relic Dot (●) Selector (Specifies which tile of the piece has the in-game merge dot) */}
+        {shapeSpec.tileCount > 1 && (
+          <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-white/5">
+            <span
+              className="text-[10px] font-bold text-amber-200/90 flex items-center gap-1"
+              title="In-game, one tile on the piece is marked with a dot ● indicating where the merged relic will land."
+            >
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-300 shadow-[0_0_5px_rgba(251,191,36,0.9)]" />
+              <span>Anchor Dot (●):</span>
+            </span>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: shapeSpec.tileCount }, (_, idx) => {
+                const isAnchor = effectiveAnchorIdx === idx;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSetAnchorTile(idx)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-black flex items-center gap-1 border transition-all ${
+                      isAnchor
+                        ? 'bg-amber-400 text-slate-950 border-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.45)]'
+                        : 'bg-[#171B28] text-slate-300 border-slate-700 hover:border-amber-400/50 hover:text-white'
+                    }`}
+                    title={`Mark Tile T${idx} as the piece's Anchor Relic (●) where merged relics land`}
+                  >
+                    <span>T{idx}</span>
+                    <span>●</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Quick Star Buttons for Selected Tile T[safeSelectedIdx] */}
         <div className="flex flex-wrap items-center gap-1">
@@ -437,6 +515,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
 };
 
 interface PieceComposerProps {
+  viewMode: 'simple' | 'advanced';
   currentPiece: PieceConfig;
   onChangeCurrentPiece: (piece: PieceConfig) => void;
   nextPiece: PieceConfig;
@@ -447,6 +526,7 @@ interface PieceComposerProps {
 }
 
 export const PieceComposer: React.FC<PieceComposerProps> = ({
+  viewMode,
   currentPiece,
   onChangeCurrentPiece,
   nextPiece,
@@ -455,53 +535,57 @@ export const PieceComposer: React.FC<PieceComposerProps> = ({
   onToggleNextPieceKnown,
   maxUnlockedStar,
 }) => {
+  const isAdvanced = viewMode === 'advanced';
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-1.5 px-1">
         <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-200">
-          Piece Queue (Current & Next)
+          Piece Queue
         </h2>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => onChangeNextPiece({ ...currentPiece, tileStars: [...currentPiece.tileStars] })}
-            className="px-2 py-0.5 rounded-md bg-[#181D2C] hover:bg-[#22293E] text-slate-300 text-[10px] font-semibold flex items-center gap-1 border border-[#2D354E]"
-            title="Copy Current Piece to Next Piece"
-          >
-            <Copy className="w-3 h-3" />
-            <span>Dup</span>
-          </button>
+        {isAdvanced && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onChangeNextPiece({ ...currentPiece, tileStars: [...currentPiece.tileStars] })}
+              className="px-2 py-0.5 rounded-md bg-[#181D2C] hover:bg-[#22293E] text-slate-300 text-[10px] font-semibold flex items-center gap-1 border border-[#2D354E]"
+              title="Copy Current Piece to Next Piece"
+            >
+              <Copy className="w-3 h-3" />
+              <span>Dup</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => onToggleNextPieceKnown(!nextPieceKnown)}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 border transition-all ${
-              nextPieceKnown
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                : 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-            }`}
-          >
-            {nextPieceKnown ? (
-              <>
-                <Eye className="w-3 h-3" />
-                <span>2-Ply Known</span>
-              </>
-            ) : (
-              <>
-                <EyeOff className="w-3 h-3" />
-                <span>1-Ply Only</span>
-              </>
-            )}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => onToggleNextPieceKnown(!nextPieceKnown)}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 border transition-all ${
+                nextPieceKnown
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+              }`}
+            >
+              {nextPieceKnown ? (
+                <>
+                  <Eye className="w-3 h-3" />
+                  <span>2-Ply Known</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3 h-3" />
+                  <span>1-Ply Only</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Stacked Current Piece & Next Piece Cards (fits directly beside the Honeycomb Board!) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-2.5">
         <SinglePieceEditorCard
-          title="Current Piece (Active)"
-          badgeText="PLY 1 • NOW"
+          viewMode={viewMode}
+          title="Current Piece"
+          badgeText={isAdvanced ? 'PLY 1 • NOW' : 'NOW'}
           badgeColor="bg-amber-400 text-slate-950"
           piece={currentPiece}
           onChangePiece={onChangeCurrentPiece}
@@ -510,8 +594,9 @@ export const PieceComposer: React.FC<PieceComposerProps> = ({
         />
 
         <SinglePieceEditorCard
-          title="Next Piece (Preview)"
-          badgeText="PLY 2 • NEXT"
+          viewMode={viewMode}
+          title="Next Piece"
+          badgeText={isAdvanced ? 'PLY 2 • NEXT' : 'NEXT'}
           badgeColor="bg-cyan-400 text-slate-950"
           piece={nextPiece}
           onChangePiece={onChangeNextPiece}

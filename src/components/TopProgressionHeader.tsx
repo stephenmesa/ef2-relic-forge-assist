@@ -48,6 +48,8 @@ interface TopProgressionHeaderProps {
   onUseStar?: (cellIndex: number) => void;
   placementsMade: number;
   onChangePlacementsMade: (count: number) => void;
+  blueprintMode?: boolean;
+  onToggleBlueprintMode?: (active: boolean) => void;
   tenStarsAchieved: number;
   activeMove: CandidateMove | null;
   onApplyActiveMove: (move: CandidateMove) => void;
@@ -84,6 +86,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   onUseStar,
   placementsMade,
   onChangePlacementsMade,
+  blueprintMode = false,
+  onToggleBlueprintMode,
   tenStarsAchieved,
   activeMove,
   onApplyActiveMove,
@@ -335,6 +339,27 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 / {MAX_RUN_PLACEMENTS}
               </span>
             </div>
+
+            {/* 🏛️ Endgame Blueprint Mode Toggle */}
+            {onToggleBlueprintMode && (
+              <button
+                type="button"
+                onClick={() => onToggleBlueprintMode(!blueprintMode)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                  blueprintMode
+                    ? 'bg-amber-500/25 text-amber-200 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/50'
+                    : 'bg-[#0D0F17] text-slate-400 border-[#293044] hover:text-amber-300 hover:border-amber-500/40'
+                }`}
+                title="🏛️ Endgame Blueprint Mode: Hyper-focuses advisor moves exclusively on the Perimeter 5-Super-Merge into 10★ Mythic strategy!"
+              >
+                <Award
+                  className={`w-3.5 h-3.5 ${
+                    blueprintMode ? 'text-amber-400 fill-amber-400/30' : 'text-slate-400'
+                  }`}
+                />
+                <span>Blueprint: {blueprintMode ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
 
             {/* Load Example Scenario Dropdown (Advanced View Only) */}
             {isAdvanced && (

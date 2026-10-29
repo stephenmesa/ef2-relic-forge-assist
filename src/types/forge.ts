@@ -207,3 +207,14 @@ export interface PresetScenario {
   nextPiece: PieceConfig;
   nextPieceKnown: boolean;
 }
+
+export interface BlueprintProgress {
+  activePhase: 1 | 2 | 3 | 4;
+  phaseTitle: string;
+  phaseGoal: string;
+  colACompleted: boolean;
+  colECompleted: boolean;
+  flanksCompleted: boolean;
+  climaxReady: boolean;
+  recommendedCell?: { col: number; row: number; label: string };
+}

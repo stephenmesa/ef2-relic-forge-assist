@@ -98,6 +98,7 @@ export const App: React.FC = () => {
   const [selectedMoveId, setSelectedMoveId] = useState<string | null>(null);
   const [hoveredMoveId, setHoveredMoveId] = useState<string | null>(null);
   const [showPly2Ghost, setShowPly2Ghost] = useState<boolean>(true);
+  const [blueprintMode, setBlueprintMode] = useState<boolean>(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -499,7 +500,8 @@ export const App: React.FC = () => {
       nextPiece,
       nextPieceKnown,
       hammerCount,
-      placementsRemaining
+      placementsRemaining,
+      blueprintMode
     );
   }, [
     board,
@@ -509,6 +511,7 @@ export const App: React.FC = () => {
     nextPieceKnown,
     hammerCount,
     placementsRemaining,
+    blueprintMode,
   ]);
 
   // Evaluate Run Hammer Advisor (0..2 Hammers)
@@ -748,6 +751,8 @@ export const App: React.FC = () => {
           pushHistory();
           setPlacementsMade(Math.max(0, Math.min(MAX_RUN_PLACEMENTS, cnt)));
         }}
+        blueprintMode={blueprintMode}
+        onToggleBlueprintMode={setBlueprintMode}
         tenStarsAchieved={tenStarsAchieved}
         activeMove={activePreviewMove.move}
         onApplyActiveMove={handleApplyPly1Move}
@@ -942,6 +947,9 @@ export const App: React.FC = () => {
               pushHistory();
               setPlacementsMade(Math.max(0, Math.min(MAX_RUN_PLACEMENTS, cnt)));
             }}
+            blueprintMode={blueprintMode}
+            onToggleBlueprintMode={setBlueprintMode}
+            blueprintProgress={solverResult.blueprintProgress}
             selectedMoveId={selectedMoveId}
             hoveredMoveId={hoveredMoveId}
             onSelectMove={setSelectedMoveId}

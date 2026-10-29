@@ -3,6 +3,7 @@ import {
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
+  Award,
   ChevronDown,
   ChevronUp,
   Cpu,
@@ -20,7 +21,7 @@ import {
 import { MAX_HAMMERS, MAX_RUN_PLACEMENTS } from '../domain/constants';
 import { formatCellCoord, formatCellCoordVerbose, indexToCoord } from '../domain/honeycomb';
 import { formatPlacedTilesSummary } from '../domain/solver';
-import { CandidateMove, HammerAdvice, PieceConfig, StarAdvice } from '../types/forge';
+import { BlueprintProgress, CandidateMove, HammerAdvice, PieceConfig, StarAdvice } from '../types/forge';
 import { MiniPiecePreview } from './PieceComposer';
 
 interface RecommendationsPanelProps {
@@ -50,6 +51,9 @@ interface RecommendationsPanelProps {
   onHoverMove: (moveId: string | null) => void;
   onApplyPly1Move: (move: CandidateMove) => void;
   onApplyBothMoves: (move: CandidateMove) => void;
+  blueprintMode?: boolean;
+  onToggleBlueprintMode?: (active: boolean) => void;
+  blueprintProgress?: BlueprintProgress;
 }
 
 export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
@@ -72,6 +76,9 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
   onHoverStarTarget,
   placementsMade,
   onChangePlacementsMade,
+  blueprintMode = false,
+  onToggleBlueprintMode,
+  blueprintProgress,
   selectedMoveId,
   hoveredMoveId,
   onSelectMove,
@@ -425,6 +432,62 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
             </button>
           </div>
         )
+      )}
+
+      {/* 🏛️ Master Endgame Blueprint Strategy Banner */}
+      {blueprintMode ? (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#18141F] to-[#121624] border border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.15)] flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <Award className="w-4 h-4" />
+              </span>
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                  Endgame Blueprint Mode
+                </span>
+                <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
+                  Phase {blueprintProgress?.activePhase ?? 1} of 4
+                </span>
+              </div>
+            </div>
+            {onToggleBlueprintMode && (
+              <button
+                type="button"
+                onClick={() => onToggleBlueprintMode(false)}
+                className="text-xs text-amber-300 hover:text-amber-100 underline font-medium"
+              >
+                Disable
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-100 font-bold">
+            {blueprintProgress?.phaseTitle}
+          </div>
+          <div className="text-[11px] text-slate-300 leading-relaxed">
+            {blueprintProgress?.phaseGoal}
+          </div>
+          {blueprintProgress?.recommendedCell && (
+            <div className="flex items-center gap-1.5 text-xs font-mono text-amber-300 bg-amber-950/50 px-2.5 py-1.5 rounded-lg border border-amber-500/30">
+              <span className="font-bold">🎯 Next Target:</span>
+              <span className="font-semibold">{blueprintProgress.recommendedCell.label}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="px-3.5 py-2.5 rounded-xl bg-[#121624]/70 border border-[#232B42] flex items-center justify-between gap-2 text-xs text-slate-300">
+          <div className="flex items-center gap-2">
+            <Award className="w-4 h-4 text-amber-400" />
+            <span>Ready for the endgame? Activate the 10★ Blueprint:</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onToggleBlueprintMode?.(true)}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 font-bold border border-amber-500/40 transition-all text-xs flex items-center gap-1 shadow"
+          >
+            Enable Blueprint
+          </button>
+        </div>
       )}
 
       {/* Maximum 1000 Placements Reached Alert */}

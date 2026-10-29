@@ -645,4 +645,105 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     expect(bestMove.ply1Sim.merges[0].mergedCells.length).toBeGreaterThanOrEqual(5);
     expect(bestMove.strategicTag?.label).toContain('+1 Hammer');
   });
+
+  it('19. Master Blueprint Verification: Column A/E 5-Relic Super-Merge at Center Anchor (A3/E3) & 10★ Climax', () => {
+    // 1. Column A 5-Stack Setup: A1, A2, A4, A5 have 6★ relics staged, with center anchor A3 (0,2) empty
+    const board = new Uint8Array(25);
+    board[cellToIndex(0, 0)] = 6; // A1
+    board[cellToIndex(0, 1)] = 6; // A2
+    board[cellToIndex(0, 3)] = 6; // A4
+    board[cellToIndex(0, 4)] = 6; // A5
+
+    const singlePiece = {
+      shapeId: 'single' as const,
+      rotation: 0,
+      tileStars: [6],
+    };
+
+    const res = solveBestMoves(
+      board,
+      6,
+      singlePiece,
+      singlePiece,
+      false,
+      1 // 1 hammer held
+    );
+
+    const bestMove = res.topRecommendations[0];
+    // Dropping the 5th 6★ at A3 (col 0, row 2) links all 5 together
+    expect(bestMove.anchorCol).toBe(0);
+    expect(bestMove.anchorRow).toBe(2); // A3
+    expect(bestMove.ply1Sim.merges).toHaveLength(1);
+    expect(bestMove.ply1Sim.merges[0].mergedCells).toHaveLength(5);
+    expect(bestMove.ply1Sim.merges[0].fromStar).toBe(6);
+    expect(bestMove.ply1Sim.merges[0].toStar).toBe(8); // +2★ jump
+    expect(bestMove.ply1Sim.merges[0].landingCell).toBe(cellToIndex(0, 2)); // A3
+    expect(bestMove.ply1Sim.hammersEarned).toBe(1);
+    expect(bestMove.strategicTag?.label).toContain('Blueprint 5-Super-Merge → 8★ at A3');
+    expect(bestMove.highlights.some((h) => h.includes('Master Blueprint'))).toBe(true);
+
+    // 2. Grand Climax: 5x 8★ relics super-merging directly into 10★ Mythic at C3
+    const climaxBoard = new Uint8Array(25);
+    climaxBoard[cellToIndex(1, 2)] = 8; // B3
+    climaxBoard[cellToIndex(1, 3)] = 8; // B4
+    climaxBoard[cellToIndex(3, 2)] = 8; // D3
+    climaxBoard[cellToIndex(3, 3)] = 8; // D4
+
+    const single8 = {
+      shapeId: 'single' as const,
+      rotation: 0,
+      tileStars: [8],
+    };
+
+    const climaxRes = solveBestMoves(
+      climaxBoard,
+      8,
+      single8,
+      single8,
+      false,
+      2 // 2 hammers
+    );
+
+    const climaxBest = climaxRes.topRecommendations[0];
+    // Placing 8★ at C3 (2,2) or C4 (2,3) unites the 5 relics into 10★ Mythic
+    expect(climaxBest.anchorCol).toBe(2);
+    expect(climaxBest.ply1Sim.tenStarsCreated).toBe(1);
+    expect(climaxBest.ply1Sim.nextBoard[cellToIndex(2, 2)]).toBe(0); // 10★ cleared from board
+    expect(climaxBest.strategicTag?.label).toContain('10★ Mythic Relic');
+  });
+
+  it('20. Endgame Blueprint Mode Hyper-Focus: Directs placements into Col A -> Col E -> Climax and blocks premature drops', () => {
+    // Board has a generic 3-tile merge in the center (Col 2, 3★ relics), and Col A is open
+    const board = new Uint8Array(25);
+    board[cellToIndex(2, 0)] = 3; // C1
+    board[cellToIndex(2, 1)] = 3; // C2
+
+    // Piece has a 6★ and a 3★: [6★, 3★]
+    const piece = {
+      shapeId: 'pair' as const,
+      rotation: 0,
+      tileStars: [6, 3],
+    };
+
+    // 1. With Blueprint Mode OFF: Standard solver balances center merge
+    const normalRes = solveBestMoves(board, 6, piece, piece, false, 1, 1000, false);
+    expect(normalRes.blueprintProgress.activePhase).toBe(1);
+
+    // 2. With Blueprint Mode ON: Hyper-focuses on Phase 1 (Col A perimeter)
+    const bpRes = solveBestMoves(board, 6, piece, piece, false, 1, 1000, true);
+    const topMove = bpRes.topRecommendations[0];
+    // Must place the 6★ into Col A (col 0)!
+    const placesInColA = topMove.placedTiles.some((pt) => pt.col === 0 && pt.star === 6);
+    expect(placesInColA).toBe(true);
+    expect(topMove.strategicTag?.label).toContain('[Blueprint P1]');
+
+    // 3. When Col A is already completed (A3 has 8★), Blueprint Mode advances to Phase 2 (Col E)
+    board[cellToIndex(0, 2)] = 8; // A3 anchor achieved!
+    const bpPhase2Res = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
+    expect(bpPhase2Res.blueprintProgress.activePhase).toBe(2);
+    const topP2Move = bpPhase2Res.topRecommendations[0];
+    const placesInColE = topP2Move.placedTiles.some((pt) => pt.col === 4 && pt.star === 6);
+    expect(placesInColE).toBe(true);
+    expect(topP2Move.strategicTag?.label).toContain('[Blueprint P2]');
+  });
 });

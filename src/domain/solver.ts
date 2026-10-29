@@ -161,8 +161,8 @@ export function evaluateTransitionReward(
 
     // Extra bonus when a merge creates a 10★ relic (which disappears from the board and is marked as achieved!)
     if (m.toStar === 10) {
-      // 5-relic super-merge jumping +2★ directly from 8★ -> 10★ is the Grand Finale of the Master Blueprint!
-      mergeScore += starJump >= 2 ? 14000 : 4500;
+      // Forging 10★ Mythic clears board congestion and is the primary objective
+      mergeScore += starJump >= 2 ? 32000 : 22000;
     }
 
     // Over-merge efficiency when clearing endangered or retired low-star tiles
@@ -590,10 +590,17 @@ export function evaluateBoardState(
     // (Prevents the solver from creating 3 separate 4★-4★ pairs in different corners!)
     const bestIsland = islands[0];
     if (bestIsland.size === 2 && bestIsland.emptyNeighbors > 0) {
-      const pairBonus =
+      let pairBonus =
         bestIsland.emptyNeighbors >= 2
           ? Math.round(420 * Math.pow(1.2, star - 1))
           : Math.round(280 * Math.pow(1.2, star - 1));
+      if (star === 9) {
+        // Prime 10★ Climax Setup: 2 adjacent 9★ relics ready to forge 10★!
+        pairBonus += 7500;
+      } else if (star === 8) {
+        // Prime 8★ Pair primed for 9★ or 10★ super-merge
+        pairBonus += 3500;
+      }
       organizationScore += pairBonus;
     }
 
@@ -654,14 +661,15 @@ export function evaluateBoardState(
     if (compEmptyNeighborsByCell[idx] > 0) {
       for (const nb of neighborsTable[idx]) {
         if (board[nb] === star + 1) {
+          const tierMult = Math.pow(1.35, Math.max(0, star - 4));
           const lowerIsPair = compSizeByCell[idx] === 2;
           const upperIsPair = compSizeByCell[nb] === 2;
           if (lowerIsPair && upperIsPair) {
-            organizationScore += 220;
+            organizationScore += Math.round(220 * tierMult);
           } else if (lowerIsPair) {
-            organizationScore += 130;
+            organizationScore += Math.round(130 * tierMult);
           } else {
-            organizationScore += 40;
+            organizationScore += Math.round(40 * tierMult);
           }
         }
       }

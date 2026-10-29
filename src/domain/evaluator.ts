@@ -236,8 +236,11 @@ export function simulateGame(
       solverResult.topRecommendations.length > 0
     ) {
       const bestMove = solverResult.topRecommendations[0];
-      // If the best move is dangerous/lethal or if hammers are capped at 2/2 and a dead space exists
-      if (bestMove.isLethal || hammers === MAX_HAMMERS) {
+      const emptyNow = countEmptyCells(board);
+      const isCriticalCrunch = emptyNow <= 4;
+
+      // If the best move is dangerous/lethal, or hammers are capped at 2/2, or board is critically crunched
+      if (bestMove.isLethal || hammers === MAX_HAMMERS || (isCriticalCrunch && hammers >= 1)) {
         const hammerAdvice = evaluateHammerAdvice(
           board,
           maxUnlockedStar,
@@ -251,7 +254,8 @@ export function simulateGame(
           hammerAdvice.shouldUseNow &&
           hammerAdvice.recommendedTarget &&
           (hammerAdvice.urgency === 'critical-survival' ||
-            (hammers === MAX_HAMMERS && hammerAdvice.recommendedTarget.isDeadRetired))
+            (hammers === MAX_HAMMERS && hammerAdvice.recommendedTarget.isDeadRetired) ||
+            (isCriticalCrunch && hammerAdvice.recommendedTarget.triangleSlotsGained > 0))
         ) {
           board[hammerAdvice.recommendedTarget.cellIndex] = 0;
           hammers = Math.max(0, hammers - 1);

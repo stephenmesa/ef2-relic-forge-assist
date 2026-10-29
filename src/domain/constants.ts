@@ -225,6 +225,11 @@ export const PIECE_SHAPES: Record<PieceShapeId, PieceShapeSpec> = {
   },
 };
 
+export const INITIAL_HAMMERS = 1;
+export const MAX_HAMMERS = 2;
+export const MAX_STAR_UPGRADE_TARGET_GRADE = 8; // Star raises 1★..8★ by +1 grade (cannot be used on 9★)
+export const MAX_RUN_PLACEMENTS = 1000;
+
 export const PIECE_SHAPE_ORDER: PieceShapeId[] = [
   'single',
   'pair',

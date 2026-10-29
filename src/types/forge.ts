@@ -55,7 +55,9 @@ export interface MergeStep {
   fromStar: number;
   toStar: number;
   mergedCells: number[]; // All cell indices cleared in this merge step
-  landingCell: number; // The cell index where toStar spawns
+  landingCell: number; // The cell index where toStar spawns (or clears if toStar === 10)
+  earnedHammer?: boolean; // true if mergedCells.length >= 5 (+1 hammer up to max 2)
+  disappearedAsTenStar?: boolean; // true if toStar === 10 (10★ disappears from the board)
 }
 
 export interface SimulationResult {
@@ -67,6 +69,8 @@ export interface SimulationResult {
   totalTilesCleared: number;
   unlockedNewMaxTier: boolean;
   newlyRetiredStars: number[];
+  hammersEarned: number;
+  tenStarsCreated: number;
 }
 
 export interface StragglerCellInfo {
@@ -140,6 +144,7 @@ export interface HammerCandidateTarget {
   bestMoveAfterHammer: CandidateMove | null;
   savesFromGameOver: boolean;
   unlocksNewTierOrCascade: boolean;
+  unblocksHammerRefund?: boolean;
   clearsLastPermanentDeadSpace: boolean;
   triangleSlotsGained: number;
   threeTileSlotsGained: number;
@@ -153,6 +158,41 @@ export interface HammerAdvice {
   rationale: string;
   recommendedTarget: HammerCandidateTarget | null;
   alternativeTargets: HammerCandidateTarget[];
+}
+
+export type StarUrgency =
+  | 'critical-survival' // Board is locked; upgrading a relic triggers a merge that saves the run
+  | 'high-value-cascade' // Upgrading a relic triggers a 10★ creation, new tier unlock, multi-step cascade, or 5+ merge (+1 Hammer)
+  | 'straggler-rescue' // Upgrading a retired/endangered relic converts or merges it out of dead space
+  | 'hold-save'; // Save the 1× Star for a higher-tier cascade or straggler rescue
+
+export interface StarCandidateTarget {
+  cellIndex: number;
+  col: number;
+  row: number;
+  fromStar: number;
+  toStar: number;
+  starSim: SimulationResult;
+  isDeadRetired: boolean;
+  isAtRisk: boolean;
+  netGainScore: number;
+  bestMoveAfterStar: CandidateMove | null;
+  savesFromGameOver: boolean;
+  triggersImmediateMerge: boolean;
+  unlocksNewTierOrCascade: boolean;
+  earnsExtraHammer: boolean;
+  createsTenStar: boolean;
+  rescuesDeadOrAtRisk: boolean;
+  reason: string;
+}
+
+export interface StarAdvice {
+  urgency: StarUrgency;
+  shouldUseNow: boolean;
+  headline: string;
+  rationale: string;
+  recommendedTarget: StarCandidateTarget | null;
+  alternativeTargets: StarCandidateTarget[];
 }
 
 export interface PresetScenario {

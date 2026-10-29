@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getMinActiveSpawnStar } from './constants';
+import {
+  INITIAL_HAMMERS,
+  MAX_HAMMERS,
+  MAX_RUN_PLACEMENTS,
+  MAX_STAR_UPGRADE_TARGET_GRADE,
+  getMinActiveSpawnStar,
+} from './constants';
 import {
   cellToIndex,
   cubeToOffset,
@@ -12,8 +18,13 @@ import { buildBoardFromPreset, PRESET_SCENARIOS } from './presets';
 import {
   analyzeShapeMobility,
   simulatePlacement,
+  simulateStarUpgrade,
 } from './simulator';
-import { evaluateHammerAdvice, solveBestMoves } from './solver';
+import {
+  evaluateHammerAdvice,
+  evaluateStarAdvice,
+  solveBestMoves,
+} from './solver';
 
 describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
   it('1. Honeycomb Adjacency Verification: Even and Odd column 6-neighbor lookup matches Section 2.1', () => {
@@ -394,6 +405,26 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     expect(lateAdvice.urgency).toBe('good-cleanup');
     expect(lateAdvice.recommendedTarget?.cellIndex).toBe(cellToIndex(2, 2));
     expect(lateAdvice.recommendedTarget?.clearsLastPermanentDeadSpace).toBe(true);
+
+    // Case C: Capped at 2/2 Hammers with a retired dead tile -> USE HAMMER PROACTIVELY (to not waste cap)
+    const cappedBoard = new Uint8Array(25);
+    cappedBoard[cellToIndex(1, 1)] = 1; // B2 = 1★ (retired at M=5★)
+    cappedBoard[cellToIndex(2, 2)] = 5; // C3 = 5★
+    cappedBoard[cellToIndex(3, 2)] = 4; // D3 = 4★
+    const cappedPiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [3, 4], anchorTileIndex: 0 };
+    const cappedSolved = solveBestMoves(cappedBoard, 5, cappedPiece, cappedPiece, false, 2);
+    const cappedAdvice = evaluateHammerAdvice(
+      cappedBoard,
+      5,
+      cappedPiece,
+      cappedPiece,
+      false,
+      cappedSolved,
+      2 // hammerCount = 2 (capped)
+    );
+    expect(cappedAdvice.shouldUseNow).toBe(true);
+    expect(cappedAdvice.headline).toContain('2/2 Capped');
+    expect(cappedAdvice.recommendedTarget?.cellIndex).toBe(cellToIndex(1, 1));
   });
 
   it('13. No-Hammer Dead-Relic Protection: Avoids merging to 8★ while a 3★ relic is on the board when Hammer is already used', () => {
@@ -423,5 +454,195 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     expect(bestMove.ply1Sim.nextMaxStar).toBe(6);
     expect(bestMove.trapsRetiredTilesCount).toBe(0);
     expect(bestMove.deadSpacesAfter).toBe(0);
+  });
+
+  it('14. Hammer Updates: 5+ relic merge awards +1 Hammer up to MAX_HAMMERS = 2', () => {
+    expect(INITIAL_HAMMERS).toBe(1);
+    expect(MAX_HAMMERS).toBe(2);
+
+    const board = new Uint8Array(25);
+    board[cellToIndex(1, 1)] = 2; // B2 = 2★
+    board[cellToIndex(1, 2)] = 2; // B3 = 2★
+    board[cellToIndex(2, 1)] = 2; // C2 = 2★
+    board[cellToIndex(2, 2)] = 2; // C3 = 2★
+
+    // A 3-piece placement connecting 2 more 2★s creates a 6-relic merge
+    const placed5 = [
+      { tileIndex: 0, col: 1, row: 3, cellIndex: cellToIndex(1, 3), star: 2, isAnchor: true },
+      { tileIndex: 1, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 2, isAnchor: false },
+    ];
+    const simSuper = simulatePlacement(board, 5, placed5);
+    expect(simSuper.merges[0].mergedCells).toHaveLength(6);
+    expect(simSuper.merges[0].earnedHammer).toBe(true);
+    expect(simSuper.hammersEarned).toBe(1);
+
+    // Standard 3-relic merge should NOT earn a hammer
+    const board3 = new Uint8Array(25);
+    board3[cellToIndex(1, 1)] = 2;
+    board3[cellToIndex(1, 2)] = 2;
+    const placed3 = [
+      { tileIndex: 0, col: 1, row: 3, cellIndex: cellToIndex(1, 3), star: 2, isAnchor: true },
+    ];
+    const sim3 = simulatePlacement(board3, 5, placed3);
+    expect(sim3.merges[0].mergedCells).toHaveLength(3);
+    expect(sim3.merges[0].earnedHammer).toBe(false);
+    expect(sim3.hammersEarned).toBe(0);
+  });
+
+  it('15. 10-Star Relic Disappearance Bug Fix: 10★ clears from board and marks run achievement', () => {
+    // 3x 9★ relics merge to form a 10★
+    const board = new Uint8Array(25);
+    board[cellToIndex(2, 1)] = 9; // C2 = 9★
+    board[cellToIndex(2, 2)] = 9; // C3 = 9★
+
+    const placed9 = [
+      { tileIndex: 0, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 9, isAnchor: true }, // C4 = 9★
+    ];
+    const sim10 = simulatePlacement(board, 9, placed9);
+    expect(sim10.merges).toHaveLength(1);
+    expect(sim10.merges[0].fromStar).toBe(9);
+    expect(sim10.merges[0].toStar).toBe(10);
+    expect(sim10.merges[0].disappearedAsTenStar).toBe(true);
+    expect(sim10.tenStarsCreated).toBe(1);
+    expect(sim10.nextMaxStar).toBe(10);
+    // Landing cell and all merged cells MUST be cleared (value 0)
+    expect(sim10.nextBoard[cellToIndex(2, 1)]).toBe(0);
+    expect(sim10.nextBoard[cellToIndex(2, 2)]).toBe(0);
+    expect(sim10.nextBoard[cellToIndex(2, 3)]).toBe(0);
+
+    // 5x 8★ super-merge into 10★: jumps +2★ to 10★, earns +1 Hammer, and disappears from board
+    const board8 = new Uint8Array(25);
+    board8[cellToIndex(1, 1)] = 8;
+    board8[cellToIndex(1, 2)] = 8;
+    board8[cellToIndex(2, 1)] = 8;
+    board8[cellToIndex(2, 2)] = 8;
+    const placed8 = [
+      { tileIndex: 0, col: 2, row: 3, cellIndex: cellToIndex(2, 3), star: 8, isAnchor: true },
+    ];
+    const simSuper10 = simulatePlacement(board8, 8, placed8);
+    expect(simSuper10.merges[0].toStar).toBe(10);
+    expect(simSuper10.merges[0].disappearedAsTenStar).toBe(true);
+    expect(simSuper10.merges[0].earnedHammer).toBe(true);
+    expect(simSuper10.hammersEarned).toBe(1);
+    expect(simSuper10.tenStarsCreated).toBe(1);
+    expect(simSuper10.nextBoard[cellToIndex(2, 3)]).toBe(0);
+  });
+
+  it('16. 1x Run Star Component: Upgrades 1★..8★, cascades merges, and rejects 9★ & empty cells', () => {
+    expect(MAX_STAR_UPGRADE_TARGET_GRADE).toBe(8);
+
+    const board = new Uint8Array(25);
+    const c2 = cellToIndex(2, 1);
+    const c3 = cellToIndex(2, 2);
+    const c4 = cellToIndex(2, 3);
+    board[c2] = 9;
+    board[c3] = 9;
+    board[c4] = 8; // Upgrade target: 8★ -> 9★, merging with C2 and C3 into 10★!
+
+    // Empty cell cannot be upgraded
+    expect(simulateStarUpgrade(board, 9, cellToIndex(0, 0))).toBeNull();
+
+    // 9★ relic cannot be upgraded
+    expect(simulateStarUpgrade(board, 9, c2)).toBeNull();
+
+    // Upgrading C4 (8★) upgrades it to 9★, triggering a merge with C2 & C3 into 10★
+    const simStar = simulateStarUpgrade(board, 9, c4);
+    expect(simStar).not.toBeNull();
+    expect(simStar!.merges).toHaveLength(1);
+    expect(simStar!.merges[0].fromStar).toBe(9);
+    expect(simStar!.merges[0].toStar).toBe(10);
+    expect(simStar!.merges[0].disappearedAsTenStar).toBe(true);
+    expect(simStar!.tenStarsCreated).toBe(1);
+    expect(simStar!.nextBoard[c4]).toBe(0);
+
+    // evaluateStarAdvice recommends using the Star on this game-winning move
+    const advice = evaluateStarAdvice(board, 9);
+    expect(advice.shouldUseNow).toBe(true);
+    expect(advice.urgency).toBe('high-value-cascade');
+    expect(advice.recommendedTarget?.createsTenStar).toBe(true);
+    expect(advice.recommendedTarget?.cellIndex).toBe(c4);
+
+    // Negative Case (User Screenshot Scenario): Unmerged 5★ at C3 on an open board
+    // Must HOLD the once-per-run Star rather than burning it on a naked 5★ -> 6★ bump
+    const holdBoard = new Uint8Array(25);
+    holdBoard[cellToIndex(1, 1)] = 3; // B2 = 3★
+    holdBoard[cellToIndex(2, 1)] = 3; // C2 = 3★
+    holdBoard[cellToIndex(2, 2)] = 5; // C3 = 5★
+    holdBoard[cellToIndex(2, 3)] = 4; // C4 = 4★
+    holdBoard[cellToIndex(2, 4)] = 2; // C5 = 2★
+    holdBoard[cellToIndex(3, 1)] = 3; // D2 = 3★
+    holdBoard[cellToIndex(3, 2)] = 2; // D3 = 2★
+    holdBoard[cellToIndex(3, 3)] = 2; // D4 = 2★
+
+    const holdAdvice = evaluateStarAdvice(holdBoard, 5);
+    expect(holdAdvice.shouldUseNow).toBe(false);
+    expect(holdAdvice.urgency).toBe('hold-save');
+    expect(holdAdvice.headline).toContain('HOLD 1× STAR');
+  });
+
+  it('17. Run Placement Cap (MAX_RUN_PLACEMENTS = 1000): Halts search at 0 remaining and limits lookahead at 1', () => {
+    expect(MAX_RUN_PLACEMENTS).toBe(1000);
+
+    const board = new Uint8Array(25);
+    const piece = { shapeId: 'single' as const, rotation: 0, tileStars: [1], anchorTileIndex: 0 };
+
+    // At 0 placements remaining (1000 made), solver returns immediately with no recommendations
+    const cappedResult = solveBestMoves(
+      board,
+      4,
+      piece,
+      piece,
+      true,
+      1,
+      0 // placementsRemaining = 0
+    );
+    expect(cappedResult.topRecommendations).toHaveLength(0);
+    expect(cappedResult.candidates).toHaveLength(0);
+
+    // At 1 placement remaining, solver executes Ply 1 only without evaluating Ply 2
+    const lastPlacementResult = solveBestMoves(
+      board,
+      4,
+      piece,
+      piece,
+      true,
+      1,
+      1 // placementsRemaining = 1
+    );
+    expect(lastPlacementResult.topRecommendations.length).toBeGreaterThan(0);
+    expect(lastPlacementResult.topRecommendations[0].bestPly2).toBeNull();
+  });
+
+  it('18. Hammer Priority (User Screenshot Scenario): Prioritizes 5+ super-merges to stock up to 2 Hammers over 4-relic cascades', () => {
+    // Board from user screenshot:
+    // B1 (1,0) = 1★, B2 (1,1) = 1★
+    // D1 (3,0) = 1★, D2 (3,1) = 1★
+    // D4 (3,3) = 2★, D5 (3,4) = 2★
+    const board = new Uint8Array(25);
+    board[cellToIndex(1, 0)] = 1; // B1
+    board[cellToIndex(1, 1)] = 1; // B2
+    board[cellToIndex(3, 0)] = 1; // D1
+    board[cellToIndex(3, 1)] = 1; // D2
+    board[cellToIndex(3, 3)] = 2; // D4
+    board[cellToIndex(3, 4)] = 2; // D5
+
+    const currentPiece = { shapeId: 'pair' as const, rotation: 0, tileStars: [1, 1], anchorTileIndex: 0 };
+    const nextPiece = { shapeId: 'line3' as const, rotation: 0, tileStars: [1, 1, 1], anchorTileIndex: 2 };
+
+    // With 1 Hammer currently held (1/2), solver should prioritize the 6-relic merge at C1-C2 that generates
+    // the 2nd Hammer (stocking up to 2/2) over the 4-relic merge at D3-E3 that only produces a 3★ cascade.
+    const res = solveBestMoves(
+      board,
+      4,
+      currentPiece,
+      nextPiece,
+      true,
+      1 // hammerCount = 1 (1/2 Hammers)
+    );
+
+    const bestMove = res.topRecommendations[0];
+    expect(bestMove.ply1Sim.hammersEarned).toBe(1);
+    expect(bestMove.ply1Sim.merges[0].mergedCells.length).toBeGreaterThanOrEqual(5);
+    expect(bestMove.strategicTag?.label).toContain('+1 Hammer');
   });
 });

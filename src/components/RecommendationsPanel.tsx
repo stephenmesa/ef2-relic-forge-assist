@@ -8,16 +8,19 @@ import {
   Cpu,
   Eye,
   FastForward,
+  Flag,
   Flame,
   Hammer,
   Play,
   ShieldCheck,
   Skull,
   Sparkles,
+  Star,
 } from 'lucide-react';
+import { MAX_HAMMERS, MAX_RUN_PLACEMENTS } from '../domain/constants';
 import { formatCellCoord, formatCellCoordVerbose, indexToCoord } from '../domain/honeycomb';
 import { formatPlacedTilesSummary } from '../domain/solver';
-import { CandidateMove, HammerAdvice, PieceConfig } from '../types/forge';
+import { CandidateMove, HammerAdvice, PieceConfig, StarAdvice } from '../types/forge';
 import { MiniPiecePreview } from './PieceComposer';
 
 interface RecommendationsPanelProps {
@@ -29,11 +32,18 @@ interface RecommendationsPanelProps {
   allCandidates: CandidateMove[];
   lethalMoves: CandidateMove[];
   elapsedMs: number;
-  hammerAvailable: boolean;
+  hammerCount: number;
   hammerAdvice: HammerAdvice;
   onUseHammer: (cellIndex: number) => void;
-  onToggleHammerAvailable: (available: boolean) => void;
+  onChangeHammerCount: (count: number) => void;
   onHoverHammerTarget: (cellIndex: number | null) => void;
+  starAvailable: boolean;
+  starAdvice: StarAdvice;
+  onUseStar: (cellIndex: number) => void;
+  onToggleStarAvailable: (available: boolean) => void;
+  onHoverStarTarget: (cellIndex: number | null) => void;
+  placementsMade: number;
+  onChangePlacementsMade: (count: number) => void;
   selectedMoveId: string | null;
   hoveredMoveId: string | null;
   onSelectMove: (moveId: string | null) => void;
@@ -50,11 +60,18 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
   allCandidates,
   lethalMoves,
   elapsedMs,
-  hammerAvailable,
+  hammerCount,
   hammerAdvice,
   onUseHammer,
-  onToggleHammerAvailable,
+  onChangeHammerCount,
   onHoverHammerTarget,
+  starAvailable,
+  starAdvice,
+  onUseStar,
+  onToggleStarAvailable,
+  onHoverStarTarget,
+  placementsMade,
+  onChangePlacementsMade,
   selectedMoveId,
   hoveredMoveId,
   onSelectMove,
@@ -63,6 +80,8 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
   onApplyBothMoves,
 }) => {
   const isAdvanced = viewMode === 'advanced';
+  const hammerAvailable = hammerCount > 0;
+  const placementsRemaining = Math.max(0, MAX_RUN_PLACEMENTS - placementsMade);
   const [expandedBreakdownId, setExpandedBreakdownId] = useState<string | null>(
     null
   );
@@ -124,7 +143,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
         )}
       </div>
 
-      {/* 1× Per Run Hammer Advisor Banner (In Simple View, only shown when Hammer is recommended NOW!) */}
+      {/* Run Hammer Advisor Banner (Start with 1, earn +1 on 5+ merge up to max 2) */}
       {hammerAvailable && (isAdvanced || hammerAdvice.shouldUseNow) ? (
         <div
           onMouseEnter={() =>
@@ -153,7 +172,9 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                 }`}
               >
                 <Hammer className="w-3 h-3" />
-                <span>1× Run Hammer</span>
+                <span>
+                  Hammer ({hammerCount}/{MAX_HAMMERS})
+                </span>
               </span>
               <span
                 className={`text-xs font-extrabold ${
@@ -169,14 +190,23 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
             </div>
 
             {isAdvanced && (
-              <button
-                type="button"
-                onClick={() => onToggleHammerAvailable(false)}
-                className="text-[10px] text-slate-400 hover:text-slate-200 underline"
-                title="Mark your 1× Run Hammer as already used in this run"
-              >
-                Mark Already Used
-              </button>
+              <div className="flex items-center gap-1">
+                {[0, 1, 2].map((cnt) => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => onChangeHammerCount(cnt)}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                      hammerCount === cnt
+                        ? 'bg-amber-400 text-slate-950 border-amber-200'
+                        : 'bg-[#151A28] text-slate-400 border-slate-700 hover:text-white'
+                    }`}
+                    title={`Set Hammer count to ${cnt}/${MAX_HAMMERS}`}
+                  >
+                    {cnt}/{MAX_HAMMERS}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
@@ -219,7 +249,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                     ? 'bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-300 hover:to-orange-300 text-slate-950 shadow'
                     : 'bg-[#1A2032] hover:bg-[#232B42] text-amber-200 border border-amber-400/40'
                 }`}
-                title="Destroy this relic on the board and mark your 1× Run Hammer as used"
+                title="Destroy this relic on the board (-1 Hammer)"
               >
                 <Hammer className="w-3.5 h-3.5" />
                 <span>
@@ -240,36 +270,206 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
           <div className="rounded-xl px-3 py-2 bg-[#0E111B] border border-[#232A3E] flex items-center justify-between gap-2 text-xs text-slate-400">
             <span className="flex items-center gap-1.5">
               <Hammer className="w-3.5 h-3.5 text-slate-500" />
-              <span>1× Run Hammer: Already used in this run</span>
+              <span>
+                Hammers: 0/{MAX_HAMMERS} (Merge 5+ relics to earn +1 Hammer)
+              </span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => onChangeHammerCount(1)}
+                className="text-[11px] font-semibold text-emerald-300 hover:underline"
+              >
+                Set 1/{MAX_HAMMERS}
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeHammerCount(2)}
+                className="text-[11px] font-semibold text-amber-300 hover:underline"
+              >
+                Set 2/{MAX_HAMMERS}
+              </button>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* 1× Per Run Star Advisor Banner (Raises 1 relic by +1 grade, except 9★; same merge rules apply) */}
+      {starAvailable && (isAdvanced || starAdvice.shouldUseNow) ? (
+        <div
+          onMouseEnter={() =>
+            onHoverStarTarget(
+              starAdvice.recommendedTarget?.cellIndex ?? null
+            )
+          }
+          onMouseLeave={() => onHoverStarTarget(null)}
+          className={`rounded-xl p-3 border transition-all space-y-2 ${
+            starAdvice.urgency === 'critical-survival'
+              ? 'bg-rose-950/60 border-rose-400/80 shadow-[0_0_18px_rgba(244,63,94,0.3)]'
+              : starAdvice.urgency === 'high-value-cascade'
+              ? 'bg-cyan-950/50 border-cyan-400/80 shadow-[0_0_16px_rgba(34,211,238,0.25)]'
+              : starAdvice.urgency === 'straggler-rescue'
+              ? 'bg-emerald-950/45 border-emerald-400/70'
+              : 'bg-[#0F131F] border-[#262E45]'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase flex items-center gap-1 ${
+                  starAdvice.shouldUseNow
+                    ? 'bg-cyan-400 text-slate-950'
+                    : 'bg-slate-800 text-slate-300 border border-slate-700'
+                }`}
+              >
+                <Star className="w-3 h-3 fill-current" />
+                <span>1× Run Star</span>
+              </span>
+              <span
+                className={`text-xs font-extrabold ${
+                  starAdvice.urgency === 'critical-survival'
+                    ? 'text-rose-200'
+                    : starAdvice.shouldUseNow
+                    ? 'text-cyan-200'
+                    : 'text-slate-200'
+                }`}
+              >
+                {starAdvice.headline}
+              </span>
+            </div>
+
+            {isAdvanced && (
+              <button
+                type="button"
+                onClick={() => onToggleStarAvailable(false)}
+                className="text-[10px] text-slate-400 hover:text-slate-200 underline"
+                title="Mark your 1× Run Star as already used in this run"
+              >
+                Mark Already Used
+              </button>
+            )}
+          </div>
+
+          {isAdvanced && (
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {starAdvice.rationale}
+            </p>
+          )}
+
+          {starAdvice.recommendedTarget && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-white/10 text-xs">
+              <div className="text-slate-200">
+                <span className="text-slate-400 mr-1">
+                  {starAdvice.shouldUseNow
+                    ? 'Star Upgrade Target:'
+                    : 'Best Target If Used Now:'}
+                </span>
+                <strong className="text-cyan-300">
+                  {formatCellCoordVerbose(
+                    starAdvice.recommendedTarget.col,
+                    starAdvice.recommendedTarget.row
+                  )}{' '}
+                  [{starAdvice.recommendedTarget.fromStar}★ →{' '}
+                  {starAdvice.recommendedTarget.toStar}★
+                  {starAdvice.recommendedTarget.triggersImmediateMerge
+                    ? ` ⇒ Merges to ${
+                        starAdvice.recommendedTarget.starSim.merges[
+                          starAdvice.recommendedTarget.starSim.merges.length - 1
+                        ].toStar
+                      }★!`
+                    : ''}
+                  ]
+                </strong>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  onUseStar(starAdvice.recommendedTarget!.cellIndex)
+                }
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1.5 transition-all ${
+                  starAdvice.shouldUseNow
+                    ? 'bg-gradient-to-r from-cyan-400 to-amber-300 hover:from-cyan-300 hover:to-amber-200 text-slate-950 shadow'
+                    : 'bg-[#1A2032] hover:bg-[#232B42] text-cyan-200 border border-cyan-400/40'
+                }`}
+                title="Raise this relic by +1 grade (triggers merges if 3+ connected) and mark your 1× Run Star as used"
+              >
+                <Star className="w-3.5 h-3.5 fill-current" />
+                <span>
+                  Upgrade{' '}
+                  {formatCellCoord(
+                    starAdvice.recommendedTarget.col,
+                    starAdvice.recommendedTarget.row
+                  )}{' '}
+                  ({starAdvice.recommendedTarget.fromStar}★→
+                  {starAdvice.recommendedTarget.toStar}★)
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        isAdvanced &&
+        !starAvailable && (
+          <div className="rounded-xl px-3 py-2 bg-[#0E111B] border border-[#232A3E] flex items-center justify-between gap-2 text-xs text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <Star className="w-3.5 h-3.5 text-slate-500" />
+              <span>1× Run Star: Already used in this run</span>
             </span>
             <button
               type="button"
-              onClick={() => onToggleHammerAvailable(true)}
-              className="text-[11px] font-semibold text-emerald-300 hover:underline"
+              onClick={() => onToggleStarAvailable(true)}
+              className="text-[11px] font-semibold text-cyan-300 hover:underline"
             >
-              Restore 1× Hammer
+              Restore 1× Star
             </button>
           </div>
         )
       )}
 
-      {/* Game Over Alert if Zero Legal Placements Exist */}
-      {allCandidates.length === 0 && (
-        <div className="p-5 rounded-xl bg-rose-950/40 border-2 border-rose-500/70 text-center space-y-2">
-          <Skull className="w-8 h-8 text-rose-400 mx-auto" />
-          <h3 className="text-base font-black text-rose-200">
-            NO VALID PLACEMENTS AVAILABLE (GAME OVER)
+      {/* Maximum 1000 Placements Reached Alert */}
+      {placementsRemaining <= 0 ? (
+        <div className="p-5 rounded-xl bg-amber-950/40 border-2 border-amber-400/70 text-center space-y-2">
+          <Flag className="w-8 h-8 text-amber-300 mx-auto" />
+          <h3 className="text-base font-black text-amber-200">
+            MAXIMUM RUN PLACEMENTS REACHED ({MAX_RUN_PLACEMENTS} / {MAX_RUN_PLACEMENTS})
           </h3>
-          <p className="text-xs text-rose-300/90 max-w-md mx-auto">
-            The Current Piece cannot fit onto any empty cells across any of its 6 honeycomb rotations.{' '}
-            {hammerAvailable && hammerAdvice.recommendedTarget
-              ? `Use your 1× Hammer above to smash ${formatCellCoord(
-                  hammerAdvice.recommendedTarget.col,
-                  hammerAdvice.recommendedTarget.row
-                )} and stay alive!`
-              : 'Clear a cell on the board or change the Current Piece shape to continue.'}
+          <p className="text-xs text-amber-100/90 max-w-md mx-auto">
+            You have reached the maximum of {MAX_RUN_PLACEMENTS} piece placements for this run.
           </p>
+          <button
+            type="button"
+            onClick={() => onChangePlacementsMade(0)}
+            className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition-all"
+          >
+            Reset Placement Counter (0 / {MAX_RUN_PLACEMENTS})
+          </button>
         </div>
+      ) : (
+        /* Game Over Alert if Zero Legal Placements Exist */
+        allCandidates.length === 0 && (
+          <div className="p-5 rounded-xl bg-rose-950/40 border-2 border-rose-500/70 text-center space-y-2">
+            <Skull className="w-8 h-8 text-rose-400 mx-auto" />
+            <h3 className="text-base font-black text-rose-200">
+              NO VALID PLACEMENTS AVAILABLE (GAME OVER)
+            </h3>
+            <p className="text-xs text-rose-300/90 max-w-md mx-auto">
+              The Current Piece cannot fit onto any empty cells across any of its 6 honeycomb rotations.{' '}
+              {hammerAvailable && hammerAdvice.recommendedTarget
+                ? `Use your Hammer above to smash ${formatCellCoord(
+                    hammerAdvice.recommendedTarget.col,
+                    hammerAdvice.recommendedTarget.row
+                  )} and stay alive!`
+                : starAvailable &&
+                  starAdvice.recommendedTarget?.savesFromGameOver
+                ? `Use your 1× Star above to upgrade ${formatCellCoord(
+                    starAdvice.recommendedTarget.col,
+                    starAdvice.recommendedTarget.row
+                  )} and trigger a saving merge!`
+                : 'Clear a cell on the board or change the Current Piece shape to continue.'}
+            </p>
+          </div>
+        )
       )}
 
       {/* Recommendation Cards (#1 Only in Simple View, Top 3 in Advanced View) */}
@@ -415,9 +615,14 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                             {move.ply1Sim.merges
                               .map((m) => {
                                 const { col, row } = indexToCoord(m.landingCell);
-                                return `${m.mergedCells.length}× ${m.fromStar}★ → ${
-                                  m.toStar
-                                }★ at ${String.fromCharCode(65 + col)}${row + 1}`;
+                                const coordStr = `${String.fromCharCode(65 + col)}${row + 1}`;
+                                const suffix = [
+                                  m.disappearedAsTenStar ? 'Achieved & Cleared!' : `at ${coordStr}`,
+                                  m.earnedHammer ? '+1 🔨' : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' • ');
+                                return `${m.mergedCells.length}× ${m.fromStar}★ → ${m.toStar}★ (${suffix})`;
                               })
                               .join('  ⇒  ')}
                           </span>

@@ -6,8 +6,17 @@ import {
   PlacedTile,
   Ply2Continuation,
   SimulationResult,
+  StarAdvice,
+  StarCandidateTarget,
 } from '../types/forge';
-import { getMinActiveSpawnStar, PIECE_SHAPES, RELIC_SPECS } from './constants';
+import {
+  getMinActiveSpawnStar,
+  MAX_HAMMERS,
+  MAX_RUN_PLACEMENTS,
+  MAX_STAR_UPGRADE_TARGET_GRADE,
+  PIECE_SHAPES,
+  RELIC_SPECS,
+} from './constants';
 import {
   formatCellCoord,
   getColumnRowCount,
@@ -21,7 +30,20 @@ import {
   countEmptyCells,
   getConnectedComponent,
   simulatePlacement,
+  simulateStarUpgrade,
 } from './simulator';
+
+export function normalizeHammerCount(
+  hammersAvailable: number | boolean = 1
+): number {
+  const raw =
+    typeof hammersAvailable === 'boolean'
+      ? hammersAvailable
+        ? 1
+        : 0
+      : hammersAvailable;
+  return Math.max(0, Math.min(MAX_HAMMERS, Math.floor(raw)));
+}
 
 interface RawPlacement {
   rotation: number;
@@ -109,18 +131,20 @@ export function generateValidPlacements(
 }
 
 /**
- * Computes the transition reward for a single placement (merges, tier unlocks & chain cascades).
+ * Computes the transition reward for a single placement (merges, tier unlocks, 5+ hammer earn & chain cascades).
  */
 export function evaluateTransitionReward(
   _preBoard: Uint8Array,
   preMaxStar: number,
-  sim: SimulationResult
+  sim: SimulationResult,
+  currentHammers: number = 1
 ): {
   score: number;
   mergeScore: number;
   tierUnlockBonus: number;
   chainBonus: number;
   lowStarClearBonus: number;
+  hammerEarnBonus: number;
 } {
   let mergeScore = 0;
   let lowStarClearBonus = 0;
@@ -132,6 +156,11 @@ export function evaluateTransitionReward(
     mergeScore += Math.round(
       450 * Math.pow(1.7, m.fromStar - 1) * (starJump >= 2 ? 2.2 : 1)
     );
+
+    // Extra bonus when a merge creates a 10★ relic (which disappears from the board and is marked as achieved!)
+    if (m.toStar === 10) {
+      mergeScore += 4500;
+    }
 
     // Over-merge efficiency when clearing endangered or retired low-star tiles
     if (m.fromStar <= minActiveBefore) {
@@ -153,12 +182,38 @@ export function evaluateTransitionReward(
   const chainBonus =
     sim.maxChainDepth >= 2 ? 650 * (sim.maxChainDepth - 1) : 0;
 
+  // Extra Hammer Bonus: Merging 5+ relics awards +1 Hammer (up to a maximum of 2 Hammers)
+  let hammerEarnBonus = 0;
+  if (sim.hammersEarned > 0) {
+    const clampedCurrent = normalizeHammerCount(currentHammers);
+    const effectiveGained = Math.max(
+      0,
+      Math.min(MAX_HAMMERS, clampedCurrent + sim.hammersEarned) - clampedCurrent
+    );
+    if (effectiveGained > 0) {
+      // Replenishing 0 -> 1 is life-saving (+12000); stocking up 1 -> 2 reaches maximum tactical reserve (+11000)
+      hammerEarnBonus =
+        clampedCurrent === 0
+          ? effectiveGained * 12000
+          : effectiveGained * 11000;
+    } else {
+      // Already capped at 2/2 hammers, but still reward 5+ relic super-merges (+2★ jump)
+      hammerEarnBonus = sim.hammersEarned * 1500;
+    }
+  }
+
   return {
-    score: mergeScore + tierUnlockBonus + chainBonus + lowStarClearBonus,
+    score:
+      mergeScore +
+      tierUnlockBonus +
+      chainBonus +
+      lowStarClearBonus +
+      hammerEarnBonus,
     mergeScore,
     tierUnlockBonus,
     chainBonus,
     lowStarClearBonus,
+    hammerEarnBonus,
   };
 }
 
@@ -211,7 +266,7 @@ export function evaluateBoardState(
   maxUnlockedStar: number,
   initialBoard: Uint8Array,
   initialMaxStar: number,
-  hammerAvailable: boolean = true,
+  hammersAvailable: number | boolean = 1,
   queueStars: number[] = [],
   cachedInitialShapeMob?: ReturnType<typeof analyzeShapeMobility>
 ): {
@@ -331,13 +386,14 @@ export function evaluateBoardState(
     (initialShapeMob.compact3TriangleSlots === 0 && emptyCellsBefore <= 11) ||
     initialShapeMob.totalThreeTileSlots <= 6;
 
+  const hammerCount = normalizeHammerCount(hammersAvailable);
+  const hammerAvailable = hammerCount > 0;
   let deadSpacePenalty = 0;
   let prematureTierUpPenalty = 0;
 
   if (newlyCreatedDeadSpaces > 0) {
     if (!hammerAvailable) {
-      // NO HAMMER LEFT IN THIS RUN:
-      // Any dead relic created now is 100% permanent for the rest of the game!
+      // NO HAMMER LEFT currently (though a 5+ merge could earn one later):
       // Strongly avoid merges that leave dead relics on the board unless the board is in a survival emergency.
       if (isSurvivalEmergency) {
         deadSpacePenalty =
@@ -351,11 +407,12 @@ export function evaluateBoardState(
         }
       }
     } else {
-      // HAMMER IS STILL AVAILABLE (1× per run):
+      // HAMMER(S) AVAILABLE (1 or 2 held, max 2):
       // Even with a hammer available, scale penalty with tierScale so high-tier merges (7★, 8★)
       // stay proportional, and penalize harder when 2+ dead spaces are created on an open board.
+      const singleDeadBase = hammerCount >= 2 ? 1050 : 1400;
       if (newlyCreatedDeadSpaces === 1) {
-        deadSpacePenalty = -Math.round(1400 * tierScale);
+        deadSpacePenalty = -Math.round(singleDeadBase * tierScale);
       } else if (newlyCreatedDeadSpaces === 2) {
         deadSpacePenalty = -Math.round(3200 * tierScale);
       } else {
@@ -657,7 +714,8 @@ export function solveBestMoves(
   currentPiece: PieceConfig,
   nextPiece: PieceConfig,
   nextPieceKnown: boolean,
-  hammerAvailable: boolean = true
+  hammersAvailable: number | boolean = 1,
+  placementsRemaining: number = MAX_RUN_PLACEMENTS
 ): {
   candidates: CandidateMove[];
   topRecommendations: CandidateMove[];
@@ -665,12 +723,23 @@ export function solveBestMoves(
   elapsedMs: number;
 } {
   const startTime = performance.now();
+  if (placementsRemaining <= 0) {
+    return {
+      candidates: [],
+      topRecommendations: [],
+      lethalMoves: [],
+      elapsedMs: 0,
+    };
+  }
+
+  const hammerCount = normalizeHammerCount(hammersAvailable);
+  const canPlayPly2 = nextPieceKnown && placementsRemaining >= 2;
   const emptyCellsBefore = countEmptyCells(board);
   const initialShapeMob = analyzeShapeMobility(board);
   const ply1Placements = generateValidPlacements(board, currentPiece);
   const queueStars = [
     ...currentPiece.tileStars,
-    ...(nextPieceKnown ? nextPiece.tileStars : []),
+    ...(canPlayPly2 ? nextPiece.tileStars : []),
   ];
 
   const candidates: CandidateMove[] = [];
@@ -684,7 +753,17 @@ export function solveBestMoves(
       p1.placedTiles
     );
 
-    const ply1Trans = evaluateTransitionReward(board, maxUnlockedStar, ply1Sim);
+    const ply1Trans = evaluateTransitionReward(
+      board,
+      maxUnlockedStar,
+      ply1Sim,
+      hammerCount
+    );
+    const hammersAfterPly1 = Math.min(
+      MAX_HAMMERS,
+      hammerCount + ply1Sim.hammersEarned
+    );
+
     const ply1WalledIn = findWalledInPlacedTiles(
       ply1Sim.nextBoard,
       p1.placedTiles
@@ -702,14 +781,14 @@ export function solveBestMoves(
       ply1Sim.nextMaxStar,
       board,
       maxUnlockedStar,
-      hammerAvailable,
+      hammerCount,
       queueStars,
       initialShapeMob
     );
     let emptyCellsAfterPly2 = emptyCellsAfterPly1;
     let threeTileMobilityAfter = terminalEval.totalThreeTileSlots;
 
-    if (nextPieceKnown) {
+    if (canPlayPly2) {
       const ply2Placements = generateValidPlacements(
         ply1Sim.nextBoard,
         nextPiece
@@ -733,14 +812,19 @@ export function solveBestMoves(
           const ply2Trans = evaluateTransitionReward(
             ply1Sim.nextBoard,
             ply1Sim.nextMaxStar,
-            ply2Sim
+            ply2Sim,
+            hammersAfterPly1
+          );
+          const hammersAfterPly2 = Math.min(
+            MAX_HAMMERS,
+            hammersAfterPly1 + ply2Sim.hammersEarned
           );
           const boardEval = evaluateBoardState(
             ply2Sim.nextBoard,
             ply2Sim.nextMaxStar,
             board,
             maxUnlockedStar,
-            hammerAvailable,
+            hammersAfterPly2,
             queueStars,
             initialShapeMob
           );
@@ -787,6 +871,14 @@ export function solveBestMoves(
       totalScore =
         ply1Trans.score + ply1ImmediateTrapPenalty + terminalEval.totalEval;
       ply2ContinuationScore = terminalEval.totalEval;
+    }
+
+    // Immediate Hammer Generation Priority: Guaranteeing a hammer on the current move (Ply 1) stocks the player
+    // up to 2/2 Hammers immediately, providing maximum tactical safety now rather than deferring to Ply 2.
+    let immediateHammerBonus = 0;
+    if (ply1Sim.hammersEarned > 0 && hammerCount < MAX_HAMMERS) {
+      immediateHammerBonus = hammerCount === 0 ? 8000 : 6000;
+      totalScore += immediateHammerBonus;
     }
 
     // Build human-readable warnings, highlights & strategic tag
@@ -838,6 +930,20 @@ export function solveBestMoves(
       );
     }
 
+    if (ply1Sim.tenStarsCreated > 0) {
+      highlights.push(
+        `👑 Forges ${ply1Sim.tenStarsCreated}x 10★ Mythic Relic (Achieved & Cleared from Board)!`
+      );
+    }
+
+    if (ply1Sim.hammersEarned > 0) {
+      highlights.push(
+        hammerCount < MAX_HAMMERS
+          ? `🔨 5+ Relic Super-Merge grants +1 Extra Hammer (${hammerCount} → ${hammersAfterPly1}/${MAX_HAMMERS})!`
+          : `🔨 5+ Relic Super-Merge (+2★ Jump)!`
+      );
+    }
+
     if (ply1Sim.maxChainDepth >= 2) {
       const chainPath = [
         `${ply1Sim.merges[0].fromStar}★`,
@@ -878,6 +984,21 @@ export function solveBestMoves(
       strategicTag = {
         label: '💀 Lethal Move (Blocks Next Piece)',
         tone: 'lethal',
+      };
+    } else if (ply1Sim.tenStarsCreated > 0) {
+      strategicTag = {
+        label: `👑 Achieves 10★ Mythic Relic (Cleared from Board)!`,
+        tone: 'chain',
+      };
+    } else if (ply1Sim.hammersEarned > 0 && hammerCount < MAX_HAMMERS) {
+      const m0 = ply1Sim.merges[0];
+      const chainSuffix =
+        ply1Sim.maxChainDepth >= 2
+          ? ` + 🔥 ${ply1Sim.maxChainDepth}-Step Chain`
+          : '';
+      strategicTag = {
+        label: `🔨 +1 Hammer (${hammersAfterPly1}/${MAX_HAMMERS}) • 5+ Super-Merge (${m0.fromStar}★ → ${m0.toStar}★)${chainSuffix}`,
+        tone: 'chain',
       };
     } else if (
       terminalEval.rescuedStragglersCount > 0 &&
@@ -953,7 +1074,19 @@ export function solveBestMoves(
     const scoreBreakdown: { label: string; value: number }[] = [
       { label: 'Ply-1 Merge & Tier Unlock Reward', value: ply1Trans.score },
     ];
-    if (nextPieceKnown && bestPly2) {
+    if (ply1Trans.hammerEarnBonus > 0) {
+      scoreBreakdown.push({
+        label: `🔨 +1 Extra Hammer Stock Bonus (${hammersAfterPly1}/${MAX_HAMMERS})`,
+        value: ply1Trans.hammerEarnBonus,
+      });
+    }
+    if (immediateHammerBonus > 0) {
+      scoreBreakdown.push({
+        label: `🔨 Immediate Hammer Stock Guarantee (${hammersAfterPly1}/${MAX_HAMMERS})`,
+        value: immediateHammerBonus,
+      });
+    }
+    if (canPlayPly2 && bestPly2) {
       scoreBreakdown.push({
         label: 'Ply-2 Next Piece Merge Reward',
         value: bestPly2.transitionScore,
@@ -1086,11 +1219,12 @@ export function formatPlacedTilesSummary(placedTiles: PlacedTile[]): string {
 }
 
 /**
- * Evaluates when and where to best use the once-per-run Hammer (destroys 1 relic on the board).
- * Balances the opportunity cost of spending the 1× Hammer now vs saving it for:
+ * Evaluates when and where to best use a Hammer (destroys 1 relic on the board).
+ * Players start with 1 Hammer and can earn an extra Hammer when merging 5+ relics (for a max of 2).
+ * Balances the opportunity cost of spending a Hammer now vs saving it for:
  * 1. Emergency survival (0 legal/non-lethal moves or 0 3-Triangle slots)
- * 2. Unblocking an immediate multi-step cascade or new Max Tier unlock
- * 3. Permanent dead-space cleanup in mid/late game (especially M >= 7★ where 4★ never retires at 8★+)
+ * 2. Unblocking an immediate multi-step cascade, 5+ merge (which refunds +1 Hammer!), or new Max Tier unlock
+ * 3. Permanent dead-space cleanup in mid/late game (especially M >= 7★ where 4★ never retires at 8★+, or when sitting at 2/2 Hammers)
  */
 export function evaluateHammerAdvice(
   board: Uint8Array,
@@ -1102,8 +1236,10 @@ export function evaluateHammerAdvice(
     candidates: CandidateMove[];
     topRecommendations: CandidateMove[];
     lethalMoves: CandidateMove[];
-  }
+  },
+  hammersAvailable: number | boolean = 1
 ): HammerAdvice {
+  const hammerCount = normalizeHammerCount(hammersAvailable);
   const validIndices = getValidCellIndices();
   const neighborsTable = getPrecomputedNeighbors();
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
@@ -1125,9 +1261,9 @@ export function evaluateHammerAdvice(
     return {
       urgency: 'hold-save',
       shouldUseNow: false,
-      headline: '🛡️ HOLD HAMMER — Board is Clean',
+      headline: `🛡️ HOLD HAMMER (${hammerCount}/${MAX_HAMMERS}) — Board is Clean`,
       rationale:
-        'You only get 1 Hammer per run. Save it for permanently retired dead relics (1★–3★) or late-game board crunches.',
+        'Start with 1 Hammer and earn +1 on any 5+ relic merge (max 2). Save your Hammer for permanently retired dead relics (1★–3★) or late-game board crunches.',
       recommendedTarget: null,
       alternativeTargets: [],
     };
@@ -1153,6 +1289,8 @@ export function evaluateHammerAdvice(
         baselineBest.bestPly2?.sim.maxChainDepth ?? 0
       )
     : 0;
+
+  const remainingHammersAfterUse = Math.max(0, hammerCount - 1);
 
   // Pre-score all occupied cells to pick the top 6 Hammer candidates for counterfactual simulation
   const preScored = occupiedCells.map((cellIdx) => {
@@ -1203,7 +1341,7 @@ export function evaluateHammerAdvice(
       currentPiece,
       nextPiece,
       false,
-      false
+      remainingHammersAfterUse
     );
     const fastBest = fastSim.topRecommendations[0] ?? null;
     // Deduct intrinsic relic value if smashing an active non-retired relic
@@ -1231,7 +1369,7 @@ export function evaluateHammerAdvice(
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      false
+      remainingHammersAfterUse
     );
     const bestMoveAfterHammer = fullSim.topRecommendations[0] ?? null;
     const afterScore = bestMoveAfterHammer
@@ -1240,10 +1378,16 @@ export function evaluateHammerAdvice(
 
     // Intrinsic cost of destroying an active relic vs bonus for clearing a permanent dead relic
     const relicDestructionPenalty = item.isDeadRetired
-      ? -1800
+      ? -2500
       : item.isAtRisk
-      ? 500
-      : Math.round(900 * Math.pow(2.1, item.star - 1));
+      ? -600
+      : item.star === 1
+      ? 200
+      : item.star === 2
+      ? 600
+      : item.star === 3
+      ? 1400
+      : Math.round(1000 * Math.pow(1.8, item.star - 3));
 
     const netGainScore = Math.round(
       afterScore - baselineScore - relicDestructionPenalty
@@ -1254,9 +1398,13 @@ export function evaluateHammerAdvice(
       bestMoveAfterHammer !== null &&
       !bestMoveAfterHammer.isLethal;
 
+    const unblocksHammerRefund = Boolean(
+      bestMoveAfterHammer && bestMoveAfterHammer.ply1Sim.hammersEarned > 0
+    );
+
     const afterMaxTier = bestMoveAfterHammer
       ? Math.max(
-          bestMoveAfterHammer.ply1Sim.nextMaxStar,
+           bestMoveAfterHammer.ply1Sim.nextMaxStar,
           bestMoveAfterHammer.bestPly2?.sim.nextMaxStar ?? 0
         )
       : maxUnlockedStar;
@@ -1274,7 +1422,7 @@ export function evaluateHammerAdvice(
             afterMaxTier > maxUnlockedStar) ||
           (afterMaxChain >= 2 &&
             afterMaxChain > baselineMaxChain &&
-            netGainScore >= 1800);
+            netGainScore >= 1400);
 
     // Once M >= 7★, 1★, 2★, and 3★ are retired and 4★ NEVER retires at 8★+!
     // So if M >= 7★ and there is only 1 dead retired tile left, smashing it permanently cleans the board for the rest of the run!
@@ -1296,6 +1444,9 @@ export function evaluateHammerAdvice(
     const reasons: string[] = [];
     if (savesFromGameOver) {
       reasons.push(`Prevents immediate Game Over and opens safe placement`);
+    }
+    if (unblocksHammerRefund) {
+      reasons.push(`Unblocks an immediate 5+ relic merge that refunds +1 Hammer`);
     }
     if (clearsLastPermanentDeadSpace) {
       reasons.push(
@@ -1336,6 +1487,7 @@ export function evaluateHammerAdvice(
       bestMoveAfterHammer,
       savesFromGameOver,
       unlocksNewTierOrCascade,
+      unblocksHammerRefund,
       clearsLastPermanentDeadSpace,
       triangleSlotsGained,
       threeTileSlotsGained,
@@ -1346,6 +1498,12 @@ export function evaluateHammerAdvice(
   evaluatedTargets.sort((a, b) => {
     if (a.savesFromGameOver !== b.savesFromGameOver) {
       return a.savesFromGameOver ? -1 : 1;
+    }
+    if (a.unblocksHammerRefund !== b.unblocksHammerRefund) {
+      return a.unblocksHammerRefund ? -1 : 1;
+    }
+    if (a.clearsLastPermanentDeadSpace !== b.clearsLastPermanentDeadSpace) {
+      return a.clearsLastPermanentDeadSpace ? -1 : 1;
     }
     if (a.isDeadRetired !== b.isDeadRetired) {
       return a.isDeadRetired ? -1 : 1;
@@ -1360,7 +1518,7 @@ export function evaluateHammerAdvice(
     return {
       urgency: 'hold-save',
       shouldUseNow: false,
-      headline: '🛡️ HOLD HAMMER — Save for Later',
+      headline: `🛡️ HOLD HAMMER (${hammerCount}/${MAX_HAMMERS}) — Save for Later`,
       rationale: 'No beneficial Hammer targets on the current board.',
       recommendedTarget: null,
       alternativeTargets: [],
@@ -1369,13 +1527,13 @@ export function evaluateHammerAdvice(
 
   const targetCoord = formatCellCoord(bestTarget.col, bestTarget.row);
 
-  // Determine overall Hammer timing recommendation
-  // 1. Critical Survival: Game Over without hammer, or 0 3-Triangle slots with <= 6 empty cells
+  // Proactive Hammer Decision Tree:
+  // 1. Critical Survival: Game Over without hammer, or 0 3-Triangle slots with tight space
   if (
     bestTarget.savesFromGameOver ||
     (baselineMobility.compact3TriangleSlots === 0 &&
       bestTarget.triangleSlotsGained > 0 &&
-      (bestTarget.isDeadRetired || bestTarget.isAtRisk || emptyCellsNow <= 7))
+      (bestTarget.isDeadRetired || bestTarget.isAtRisk || emptyCellsNow <= 8))
   ) {
     return {
       urgency: 'critical-survival',
@@ -1389,64 +1547,466 @@ export function evaluateHammerAdvice(
     };
   }
 
-  // 2. High-Value Cascade / Tier Unlock Unblocker (only for Dead or Low-Star tiles)
+  // 2. Self-Refunding 5+ Relic Super-Merge: smashing unblocks an immediate 5+ merge that earns back the hammer!
+  if (
+    bestTarget.unblocksHammerRefund &&
+    (bestTarget.isDeadRetired || bestTarget.isAtRisk || bestTarget.star <= 4)
+  ) {
+    return {
+      urgency: 'high-value-cascade',
+      shouldUseNow: true,
+      headline: `🔨 USE HAMMER NOW — Smash ${targetCoord} (${bestTarget.star}★) to Unblock 5+ Merge (Refunds Hammer!)`,
+      rationale: `Smashing ${targetCoord} (${bestTarget.star}★) allows your current piece to execute a 5+ relic super-merge. This immediately refunds +1 Hammer back to your inventory and triggers a +2★ evolution!`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 3. High-Value Cascade / Tier Unlock Unblocker
   if (
     bestTarget.unlocksNewTierOrCascade &&
-    (bestTarget.isDeadRetired || bestTarget.isAtRisk)
+    (bestTarget.isDeadRetired || bestTarget.isAtRisk || bestTarget.star <= 4)
   ) {
     return {
       urgency: 'high-value-cascade',
       shouldUseNow: true,
       headline: `🔥 USE HAMMER NOW — Smash ${targetCoord} (${bestTarget.star}★) to Unblock Cascade!`,
-      rationale: `${bestTarget.reason}. Spending your 1× Hammer here converts a blocked board into an immediate high-tier breakthrough.`,
+      rationale: `${bestTarget.reason}. Spending a Hammer here converts a blocked board into an immediate high-tier breakthrough.`,
       recommendedTarget: bestTarget,
       alternativeTargets,
     };
   }
 
-  // 3. Optimal Mid/Late-Game Permanent Dead-Space Cleanup
+  // 4. Capped at 2/2 Hammers: Proactively spend a hammer to keep room for future +1 Hammer gains
+  if (
+    hammerCount >= MAX_HAMMERS &&
+    (bestTarget.isDeadRetired ||
+      bestTarget.isAtRisk ||
+      (bestTarget.star <= 3 && (bestTarget.triangleSlotsGained > 0 || bestTarget.netGainScore >= 600)))
+  ) {
+    return {
+      urgency: 'good-cleanup',
+      shouldUseNow: true,
+      headline: `🔨 USE HAMMER (2/2 Capped) — Smash ${targetCoord} (${bestTarget.star}★) to Keep Inventory Open`,
+      rationale: `You are holding the maximum ${MAX_HAMMERS}/${MAX_HAMMERS} Hammers! Smashing this ${
+        bestTarget.isDeadRetired ? 'permanently retired dead relic' : 'low-star blocker'
+      } clears valuable space and re-opens room to earn another Hammer on your next 5+ relic merge.`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 5. Optimal Permanent Dead-Space Cleanup (Late game 7★+)
   if (bestTarget.clearsLastPermanentDeadSpace) {
     return {
       urgency: 'good-cleanup',
       shouldUseNow: true,
       headline: `✨ OPTIMAL HAMMER WINDOW — Smash Final Retired ${bestTarget.star}★ at ${targetCoord}`,
-      rationale: `At ${maxUnlockedStar}★+, 1★–3★ are retired and 4★ Purple never retires at 8★+. Smashing your last retired ${bestTarget.star}★ at ${targetCoord} permanently gives you 0 dead spaces for the rest of the run!`,
+      rationale: `At ${maxUnlockedStar}★+, 1★–3★ are retired and 4★ Purple never retires at 8★+. Smashing your last retired ${bestTarget.star}★ at ${targetCoord} permanently gives you 0 dead spaces!`,
       recommendedTarget: bestTarget,
       alternativeTargets,
     };
   }
 
+  // 6. Proactive Mid-Game Dead Tile Removal: don't let dead tiles sit around when hammers can replenish
   if (
     bestTarget.isDeadRetired &&
-    (emptyCellsNow <= 9 ||
-      (maxUnlockedStar >= 6 && totalDeadCount >= 2) ||
-      (bestTarget.col >= 1 && bestTarget.col <= 3 && emptyCellsNow <= 12))
+    (emptyCellsNow <= 15 ||
+      (baselineMobility.compact3TriangleSlots <= 2 && bestTarget.triangleSlotsGained > 0) ||
+      (bestTarget.col >= 1 && bestTarget.col <= 3 && emptyCellsNow <= 18))
   ) {
     return {
       urgency: 'good-cleanup',
       shouldUseNow: true,
-      headline: `🔨 GOOD TIME TO HAMMER — Smash Retired ${bestTarget.star}★ at ${targetCoord}`,
-      rationale: `Board space is tightening (${emptyCellsNow} empty cells) and ${targetCoord} (${bestTarget.star}★) is a permanently retired dead space in a key lane. Reclaiming it now protects 3-tile mobility.`,
+      headline: `🔨 PROACTIVE CLEANUP — Smash Retired ${bestTarget.star}★ at ${targetCoord}`,
+      rationale: `Smashing this retired dead space eliminates unmergeable clutter and protects 3-tile shape mobility. Since hammers replenish on 5+ relic merges, using a Hammer proactively keeps your board fluid.`,
       recommendedTarget: bestTarget,
       alternativeTargets,
     };
   }
 
-  // 4. Otherwise: HOLD / SAVE HAMMER!
+  // 7. Proactive Awkward Wedged Blocker Removal: smash low-star tiles wedging high-tier lanes
+  if (
+    bestTarget.star <= 2 &&
+    bestTarget.col >= 1 &&
+    bestTarget.col <= 3 &&
+    bestTarget.triangleSlotsGained >= 1 &&
+    bestTarget.netGainScore >= 1000 &&
+    emptyCellsNow <= 15
+  ) {
+    return {
+      urgency: 'good-cleanup',
+      shouldUseNow: true,
+      headline: `🔨 PROACTIVE HAMMER — Clear Wedged ${bestTarget.star}★ at ${targetCoord}`,
+      rationale: `This ${bestTarget.star}★ relic is wedging higher-tier pairs apart in a central lane. Smashing it restores +${bestTarget.triangleSlotsGained} 3-Triangle placement(s) and connects your merge pipeline.`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 8. Otherwise: Board is clean and healthy; hold hammer
   const holdReason =
     totalDeadCount === 0
       ? totalAtRiskCount > 0
         ? `You have 0 retired dead tiles right now (your ${minActiveStar}★ tile${
             totalAtRiskCount > 1 ? 's are' : ' is'
-          } still in the active spawn pool and can be merged naturally). Save your 1× Hammer!`
-        : `You have 0 dead spaces and ${emptyCellsNow} open cells. Save your 1× Hammer for a retired tile or late-game board crunch.`
-      : `You have 1 retired ${bestTarget.star}★ at ${targetCoord}, but with ${emptyCellsNow} open cells at M=${maxUnlockedStar}★, hold your 1× Hammer until 7★+ (when 3★ retires) or until board space drops below 10 cells.`;
+          } still in the active spawn pool and can be merged naturally). Save your Hammer (${hammerCount}/${MAX_HAMMERS})!`
+        : `Board space is open (${emptyCellsNow} empty cells) and flowing cleanly. Keep your Hammer (${hammerCount}/${MAX_HAMMERS}) in reserve until an awkward blocker forms or a 5+ super-merge can be unblocked.`
+      : `You have 1 retired ${bestTarget.star}★ in outer column ${formatCellCoord(bestTarget.col, bestTarget.row)}, with plenty of open space (${emptyCellsNow} empty cells). Hold your Hammer (${hammerCount}/${MAX_HAMMERS}) until the board tightens or another hammer is earned.`;
 
   return {
     urgency: 'hold-save',
     shouldUseNow: false,
-    headline: `🛡️ HOLD HAMMER — Save Your 1× Run Hammer for Later`,
+    headline: `🛡️ HOLD HAMMER (${hammerCount}/${MAX_HAMMERS}) — Board is Flowing Smoothly`,
     rationale: holdReason,
+    recommendedTarget: bestTarget,
+    alternativeTargets,
+  };
+}
+
+/**
+ * Evaluates when and where to best use the once-per-run Star component:
+ * - Raises 1 relic on the board by +1 grade (valid for 1★..8★; cannot be used on 9★).
+ * - Applies the exact same merging and cascade rules (including 5+ relic super-merges granting +2★ and +1 Hammer,
+ *   and 10★ relics disappearing from the board when achieved).
+ */
+export function evaluateStarAdvice(
+  board: Uint8Array,
+  maxUnlockedStar: number,
+  currentPiece?: PieceConfig,
+  nextPiece?: PieceConfig,
+  nextPieceKnown: boolean = false,
+  baselineResult?: {
+    candidates: CandidateMove[];
+    topRecommendations: CandidateMove[];
+    lethalMoves: CandidateMove[];
+  },
+  hammersAvailable: number | boolean = 1
+): StarAdvice {
+  const hammerCount = normalizeHammerCount(hammersAvailable);
+  const validIndices = getValidCellIndices();
+  const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
+
+  const eligibleCells: number[] = [];
+  for (const idx of validIndices) {
+    const s = board[idx];
+    if (s >= 1 && s <= MAX_STAR_UPGRADE_TARGET_GRADE) {
+      eligibleCells.push(idx);
+    }
+  }
+
+  if (eligibleCells.length === 0) {
+    return {
+      urgency: 'hold-save',
+      shouldUseNow: false,
+      headline: '⭐ HOLD 1× STAR — No Eligible 1★–8★ Relics on Board',
+      rationale:
+        'You get 1 Star per run to raise any 1★–8★ relic by +1 grade (cannot be used on 9★). Save it for a high-tier cascade, a 5+ merge (+1 Hammer), or rescuing a retired straggler.',
+      recommendedTarget: null,
+      alternativeTargets: [],
+    };
+  }
+
+  const effectiveCurrentPiece: PieceConfig = currentPiece ?? {
+    shapeId: 'single',
+    rotation: 0,
+    tileStars: [Math.min(9, maxUnlockedStar)],
+  };
+  const effectiveNextPiece: PieceConfig = nextPiece ?? effectiveCurrentPiece;
+  const effectiveBaseline =
+    baselineResult ??
+    solveBestMoves(
+      board,
+      maxUnlockedStar,
+      effectiveCurrentPiece,
+      effectiveNextPiece,
+      nextPieceKnown,
+      hammerCount
+    );
+
+  const emptyCellsNow = countEmptyCells(board);
+  const baselineBest = effectiveBaseline.topRecommendations[0] ?? null;
+  const baselineScore = baselineBest ? baselineBest.totalScore : -25000;
+  const baselineIsGameOverOrLethal =
+    effectiveBaseline.candidates.length === 0 ||
+    effectiveBaseline.candidates.every((c) => c.isLethal);
+
+  // Pre-evaluate immediate Star upgrade simulation on all eligible cells (1★..8★)
+  const preScored = eligibleCells
+    .map((cellIdx) => {
+      const fromStar = board[cellIdx];
+      const toStar = fromStar + 1;
+      const { col, row } = indexToCoord(cellIdx);
+      const isDeadRetired = fromStar < minActiveStar;
+      const isAtRisk = fromStar === minActiveStar;
+      const starSim = simulateStarUpgrade(board, maxUnlockedStar, cellIdx);
+      if (!starSim) return null;
+
+      const starTrans = evaluateTransitionReward(
+        board,
+        maxUnlockedStar,
+        starSim,
+        hammerCount
+      );
+      const triggersImmediateMerge = starSim.merges.length > 0;
+
+      // Priority heuristic for candidate screening:
+      const priorityScore =
+        starTrans.score +
+        (starSim.tenStarsCreated > 0 ? 25000 : 0) +
+        (starSim.hammersEarned > 0 ? 6000 : 0) +
+        (triggersImmediateMerge ? 3500 + starSim.maxChainDepth * 1500 : 0) +
+        (isDeadRetired ? 4000 : isAtRisk ? 1800 : 0) +
+        fromStar * 450;
+
+      return {
+        cellIdx,
+        col,
+        row,
+        fromStar,
+        toStar,
+        isDeadRetired,
+        isAtRisk,
+        starSim,
+        starTransScore: starTrans.score,
+        triggersImmediateMerge,
+        priorityScore,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  preScored.sort((a, b) => b.priorityScore - a.priorityScore);
+  const candidatePool = preScored.slice(0, 6);
+
+  // Fast 1-ply screening across top 6 Star candidates
+  const screened = candidatePool.map((item) => {
+    const hammersAfterStar = Math.min(
+      MAX_HAMMERS,
+      hammerCount + item.starSim.hammersEarned
+    );
+    const fastSim = solveBestMoves(
+      item.starSim.nextBoard,
+      item.starSim.nextMaxStar,
+      effectiveCurrentPiece,
+      effectiveNextPiece,
+      false,
+      hammersAfterStar
+    );
+    const fastBest = fastSim.topRecommendations[0] ?? null;
+    const rawFastScore =
+      item.starTransScore + (fastBest ? fastBest.totalScore : -20000);
+    return {
+      ...item,
+      hammersAfterStar,
+      rawFastScore,
+    };
+  });
+
+  screened.sort((a, b) => b.rawFastScore - a.rawFastScore);
+  const topCandidates = screened.slice(0, 3);
+
+  // Full 2-ply counterfactual evaluation on top 3 Star candidates
+  const evaluatedTargets: StarCandidateTarget[] = topCandidates.map((item) => {
+    const fullSim = solveBestMoves(
+      item.starSim.nextBoard,
+      item.starSim.nextMaxStar,
+      effectiveCurrentPiece,
+      effectiveNextPiece,
+      nextPieceKnown,
+      item.hammersAfterStar
+    );
+    const bestMoveAfterStar = fullSim.topRecommendations[0] ?? null;
+    const afterMoveScore = bestMoveAfterStar
+      ? bestMoveAfterStar.totalScore
+      : -25000;
+
+    const netGainScore = Math.round(
+      item.starTransScore + afterMoveScore - baselineScore
+    );
+
+    const savesFromGameOver =
+      baselineIsGameOverOrLethal &&
+      bestMoveAfterStar !== null &&
+      !bestMoveAfterStar.isLethal;
+
+    const createsTenStar =
+      item.starSim.tenStarsCreated > 0 ||
+      (bestMoveAfterStar?.ply1Sim.tenStarsCreated ?? 0) > 0;
+
+    const earnsExtraHammer =
+      item.starSim.hammersEarned > 0 && hammerCount < MAX_HAMMERS;
+
+    // A cascade MUST trigger an actual immediate multi-step chain clearing multiple tiles on an advanced relic (5★+)
+    const isMajorCascade =
+      item.triggersImmediateMerge &&
+      item.starSim.maxChainDepth >= 2 &&
+      item.fromStar >= 5 &&
+      item.starSim.totalTilesCleared >= 4;
+
+    const rescuesDeadOrAtRisk =
+      item.isDeadRetired && item.triggersImmediateMerge;
+
+    const coordLabel = formatCellCoord(item.col, item.row);
+    const reasons: string[] = [
+      `Raises ${coordLabel} from ${item.fromStar}★ → ${item.toStar}★`,
+    ];
+
+    if (item.starSim.tenStarsCreated > 0) {
+      reasons.push(`Immediately forges a 10★ Mythic Relic (Achieved & Cleared from board!)`);
+    } else if (item.triggersImmediateMerge) {
+      const chainPath = [
+        `${item.starSim.merges[0].fromStar}★`,
+        ...item.starSim.merges.map((m) => `${m.toStar}★`),
+      ].join(' → ');
+      reasons.push(
+        `Immediately triggers ${
+          item.starSim.maxChainDepth >= 2
+            ? `${item.starSim.maxChainDepth}-step cascade (${chainPath})`
+            : `merge (${chainPath})`
+        } clearing ${item.starSim.totalTilesCleared} tile(s)`
+      );
+    }
+
+    if (earnsExtraHammer) {
+      reasons.push(
+        `Triggers 5+ relic super-merge (+1 Extra Hammer → ${item.hammersAfterStar}/${MAX_HAMMERS})`
+      );
+    }
+
+    if (item.isDeadRetired && item.triggersImmediateMerge) {
+      reasons.push(`Eliminates retired ${item.fromStar}★ dead space via immediate merge`);
+    }
+
+    if (savesFromGameOver) {
+      reasons.push(`Prevents immediate Game Over`);
+    }
+
+    return {
+      cellIndex: item.cellIdx,
+      col: item.col,
+      row: item.row,
+      fromStar: item.fromStar,
+      toStar: item.toStar,
+      starSim: item.starSim,
+      isDeadRetired: item.isDeadRetired,
+      isAtRisk: item.isAtRisk,
+      netGainScore,
+      bestMoveAfterStar,
+      savesFromGameOver,
+      triggersImmediateMerge: item.triggersImmediateMerge,
+      unlocksNewTierOrCascade: isMajorCascade,
+      earnsExtraHammer,
+      createsTenStar,
+      rescuesDeadOrAtRisk,
+      reason: reasons.join(' • '),
+    };
+  });
+
+  evaluatedTargets.sort((a, b) => {
+    if (a.savesFromGameOver !== b.savesFromGameOver) {
+      return a.savesFromGameOver ? -1 : 1;
+    }
+    if (a.createsTenStar !== b.createsTenStar) {
+      return a.createsTenStar ? -1 : 1;
+    }
+    if (a.earnsExtraHammer !== b.earnsExtraHammer) {
+      return a.earnsExtraHammer ? -1 : 1;
+    }
+    if (a.unlocksNewTierOrCascade !== b.unlocksNewTierOrCascade) {
+      return a.unlocksNewTierOrCascade ? -1 : 1;
+    }
+    return b.netGainScore - a.netGainScore;
+  });
+
+  const bestTarget = evaluatedTargets[0] ?? null;
+  const alternativeTargets = evaluatedTargets.slice(1);
+
+  if (!bestTarget) {
+    return {
+      urgency: 'hold-save',
+      shouldUseNow: false,
+      headline: '⭐ HOLD 1× STAR — Save for Later',
+      rationale: 'No high-impact Star upgrade target on the current board.',
+      recommendedTarget: null,
+      alternativeTargets: [],
+    };
+  }
+
+  const targetCoord = formatCellCoord(bestTarget.col, bestTarget.row);
+
+  // 1. Critical Survival: player is blocked / lethal
+  if (bestTarget.savesFromGameOver) {
+    return {
+      urgency: 'critical-survival',
+      shouldUseNow: true,
+      headline: `🚨 USE 1× STAR NOW — Upgrade ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★) to Save Run!`,
+      rationale: `All current piece placements are lethal/blocked. Using your 1× Star on ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★) clears space and saves your run!`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 2. High-Value Payoffs: 10★ Finisher, +1 Hammer from 5+ Super-Merge, or Major Multi-Step Cascade
+  if (bestTarget.createsTenStar) {
+    return {
+      urgency: 'high-value-cascade',
+      shouldUseNow: true,
+      headline: `👑 USE 1× STAR NOW — Upgrade ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★) to Forge 10★!`,
+      rationale: `${bestTarget.reason}. This completes your 10★ Mythic achievement and clears the tile from the board!`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  if (bestTarget.earnsExtraHammer) {
+    return {
+      urgency: 'high-value-cascade',
+      shouldUseNow: true,
+      headline: `🔨 USE 1× STAR NOW — Upgrade ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★) for 5+ Merge & +1 Hammer!`,
+      rationale: `${bestTarget.reason}. Earning an extra Hammer increases your tactical reserve to ${bestTarget.starSim.hammersEarned + hammerCount}/${MAX_HAMMERS}!`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  if (bestTarget.unlocksNewTierOrCascade) {
+    return {
+      urgency: 'high-value-cascade',
+      shouldUseNow: true,
+      headline: `⭐ USE 1× STAR NOW — Upgrade ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★) for Multi-Step Cascade!`,
+      rationale: `${bestTarget.reason}. Triggering this high-tier cascade clears multiple tiles and reorganizes your board.`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 3. Retired Dead-Space Promotion: only if it immediately merges away dead space in congested/late-game board
+  if (
+    bestTarget.rescuesDeadOrAtRisk &&
+    (emptyCellsNow <= 8 || maxUnlockedStar >= 7)
+  ) {
+    return {
+      urgency: 'straggler-rescue',
+      shouldUseNow: true,
+      headline: `✨ GOOD TIME FOR 1× STAR — Rescue Retired ${bestTarget.fromStar}★ at ${targetCoord} (→ ${bestTarget.toStar}★)`,
+      rationale: `${bestTarget.reason}. Eliminating permanently retired dead space keeps your board open without spending a Hammer.`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 4. Default: HOLD 1× Star (Save for 10★ finisher, +1 Hammer, or emergency)
+  const previewTargetDesc = bestTarget
+    ? `Best target if used later: ${targetCoord} (${bestTarget.fromStar}★ → ${bestTarget.toStar}★${
+        bestTarget.triggersImmediateMerge ? ', immediate merge' : ', no immediate merge'
+      }).`
+    : '';
+
+  return {
+    urgency: 'hold-save',
+    shouldUseNow: false,
+    headline: `🛡️ HOLD 1× STAR — Save Your 1× Run Star for Later`,
+    rationale: `You only get 1 Star for the entire run. Do not spend it on an unmerged tile or low-stakes upgrade. Save it for a 10★ finisher, a 5+ super-merge (+1 Hammer), or saving your run from a game-over block. ${previewTargetDesc}`.trim(),
     recommendedTarget: bestTarget,
     alternativeTargets,
   };

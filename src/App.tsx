@@ -9,6 +9,11 @@ import { HoneycombBoard } from './components/HoneycombBoard';
 import { PieceComposer } from './components/PieceComposer';
 import { RecommendationsPanel } from './components/RecommendationsPanel';
 import { TopProgressionHeader } from './components/TopProgressionHeader';
+import {
+  INITIAL_HAMMERS,
+  MAX_HAMMERS,
+  MAX_RUN_PLACEMENTS,
+} from './domain/constants';
 import { formatCellCoord, indexToCoord } from './domain/honeycomb';
 import {
   buildBoardFromPreset,
@@ -20,8 +25,13 @@ import {
   analyzeBoardStragglers,
   analyzeShapeMobility,
   countEmptyCells,
+  simulateStarUpgrade,
 } from './domain/simulator';
-import { evaluateHammerAdvice, solveBestMoves } from './domain/solver';
+import {
+  evaluateHammerAdvice,
+  evaluateStarAdvice,
+  solveBestMoves,
+} from './domain/solver';
 import {
   CandidateMove,
   PieceConfig,
@@ -34,7 +44,10 @@ interface HistorySnapshot {
   currentPiece: PieceConfig;
   nextPiece: PieceConfig;
   nextPieceKnown: boolean;
-  hammerAvailable: boolean;
+  hammerCount: number;
+  starAvailable: boolean;
+  placementsMade: number;
+  tenStarsAchieved: number;
   activePresetId: string | null;
 }
 
@@ -54,10 +67,16 @@ const DEFAULT_NEXT_PIECE: PieceConfig = {
 
 export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'simple' | 'advanced'>('simple');
-  const [hammerAvailable, setHammerAvailable] = useState<boolean>(true);
+  const [hammerCount, setHammerCount] = useState<number>(INITIAL_HAMMERS);
   const [hoveredHammerTarget, setHoveredHammerTarget] = useState<number | null>(
     null
   );
+  const [starAvailable, setStarAvailable] = useState<boolean>(true);
+  const [hoveredStarTarget, setHoveredStarTarget] = useState<number | null>(
+    null
+  );
+  const [placementsMade, setPlacementsMade] = useState<number>(0);
+  const [tenStarsAchieved, setTenStarsAchieved] = useState<number>(0);
   const [board, setBoard] = useState<Uint8Array>(() => new Uint8Array(25));
   const [manualMaxStar, setManualMaxStar] = useState<number | null>(null);
   const [currentPiece, setCurrentPiece] =
@@ -66,9 +85,9 @@ export const App: React.FC = () => {
   const [nextPieceKnown, setNextPieceKnown] = useState<boolean>(true);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
-  // Paint brush state (0 = eraser, 1..10 = relic star, 'inspect' | 'popover' | 'hammer')
+  // Paint brush state (0 = eraser, 1..9 = relic star, 'inspect' | 'popover' | 'hammer' | 'star')
   const [activeBrush, setActiveBrush] = useState<
-    number | 'inspect' | 'popover' | 'hammer'
+    number | 'inspect' | 'popover' | 'hammer' | 'star'
   >(1);
 
   // Undo / Redo stacks (up to 50 states)
@@ -92,7 +111,10 @@ export const App: React.FC = () => {
         setCurrentPiece(decoded.currentPiece);
         setNextPiece(decoded.nextPiece);
         setNextPieceKnown(decoded.nextPieceKnown);
-        setHammerAvailable(decoded.hammerAvailable);
+        setHammerCount(decoded.hammerCount);
+        setStarAvailable(decoded.starAvailable);
+        setPlacementsMade(decoded.placementsMade);
+        setTenStarsAchieved(decoded.tenStarsAchieved);
         setActivePresetId(null);
       }
     }
@@ -112,8 +134,17 @@ export const App: React.FC = () => {
         if (s > maxVal) maxVal = s;
       }
     }
+    if (tenStarsAchieved > 0) {
+      maxVal = 10;
+    }
     return maxVal;
-  }, [board, currentPiece.tileStars, nextPiece.tileStars, nextPieceKnown]);
+  }, [
+    board,
+    currentPiece.tileStars,
+    nextPiece.tileStars,
+    nextPieceKnown,
+    tenStarsAchieved,
+  ]);
 
   const effectiveMaxStar = useMemo(() => {
     if (manualMaxStar !== null) {
@@ -136,7 +167,10 @@ export const App: React.FC = () => {
           tileStars: [...nextPiece.tileStars],
         },
         nextPieceKnown,
-        hammerAvailable,
+        hammerCount,
+        starAvailable,
+        placementsMade,
+        tenStarsAchieved,
         activePresetId,
       };
       return [...prev.slice(-49), snapshot];
@@ -148,7 +182,10 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    hammerAvailable,
+    hammerCount,
+    starAvailable,
+    placementsMade,
+    tenStarsAchieved,
     activePresetId,
   ]);
 
@@ -161,7 +198,10 @@ export const App: React.FC = () => {
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
       nextPiece: { ...nextPiece, tileStars: [...nextPiece.tileStars] },
       nextPieceKnown,
-      hammerAvailable,
+      hammerCount,
+      starAvailable,
+      placementsMade,
+      tenStarsAchieved,
       activePresetId,
     };
     setRedoStack((prev) => [...prev, currentSnapshot]);
@@ -172,7 +212,10 @@ export const App: React.FC = () => {
     setCurrentPiece(last.currentPiece);
     setNextPiece(last.nextPiece);
     setNextPieceKnown(last.nextPieceKnown);
-    setHammerAvailable(last.hammerAvailable);
+    setHammerCount(last.hammerCount);
+    setStarAvailable(last.starAvailable);
+    setPlacementsMade(last.placementsMade);
+    setTenStarsAchieved(last.tenStarsAchieved);
     setActivePresetId(last.activePresetId);
   }, [
     undoStack,
@@ -181,7 +224,10 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    hammerAvailable,
+    hammerCount,
+    starAvailable,
+    placementsMade,
+    tenStarsAchieved,
     activePresetId,
   ]);
 
@@ -194,7 +240,10 @@ export const App: React.FC = () => {
       currentPiece: { ...currentPiece, tileStars: [...currentPiece.tileStars] },
       nextPiece: { ...nextPiece, tileStars: [...nextPiece.tileStars] },
       nextPieceKnown,
-      hammerAvailable,
+      hammerCount,
+      starAvailable,
+      placementsMade,
+      tenStarsAchieved,
       activePresetId,
     };
     setUndoStack((prev) => [...prev, currentSnapshot]);
@@ -205,7 +254,10 @@ export const App: React.FC = () => {
     setCurrentPiece(nextSnap.currentPiece);
     setNextPiece(nextSnap.nextPiece);
     setNextPieceKnown(nextSnap.nextPieceKnown);
-    setHammerAvailable(nextSnap.hammerAvailable);
+    setHammerCount(nextSnap.hammerCount);
+    setStarAvailable(nextSnap.starAvailable);
+    setPlacementsMade(nextSnap.placementsMade);
+    setTenStarsAchieved(nextSnap.tenStarsAchieved);
     setActivePresetId(nextSnap.activePresetId);
   }, [
     redoStack,
@@ -214,13 +266,29 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    hammerAvailable,
+    hammerCount,
+    starAvailable,
+    placementsMade,
+    tenStarsAchieved,
     activePresetId,
   ]);
 
-  // Set individual board cell star level
+  // Set individual board cell star level (10★ relics disappear from the board and are marked as achieved)
   const handleSetCellStar = useCallback(
     (cellIndex: number, star: number) => {
+      if (star >= 10) {
+        pushHistory();
+        setManualMaxStar(10);
+        setTenStarsAchieved((prev) => Math.max(1, prev));
+        if (board[cellIndex] !== 0) {
+          setBoard((prev) => {
+            const next = new Uint8Array(prev);
+            next[cellIndex] = 0;
+            return next;
+          });
+        }
+        return;
+      }
       if (board[cellIndex] === star) return;
       pushHistory();
       setBoard((prev) => {
@@ -232,29 +300,84 @@ export const App: React.FC = () => {
     [board, pushHistory]
   );
 
-  // Use 1× Run Hammer on a board cell
+  // Use a Run Hammer on a board cell (decrements hammerCount by 1)
   const handleUseHammer = useCallback(
     (cellIndex: number) => {
       const targetStar = board[cellIndex];
-      if (!hammerAvailable || targetStar === 0) return;
+      if (hammerCount <= 0 || targetStar === 0) return;
       pushHistory();
+      const nextCount = Math.max(0, hammerCount - 1);
       setBoard((prev) => {
         const next = new Uint8Array(prev);
         next[cellIndex] = 0;
         return next;
       });
-      setHammerAvailable(false);
+      setHammerCount(nextCount);
       setHoveredHammerTarget(null);
-      if (activeBrush === 'hammer') {
+      if (nextCount === 0 && activeBrush === 'hammer') {
         setActiveBrush(1);
       }
       const { col, row } = indexToCoord(cellIndex);
       setToastMessage(
-        `🔨 Smashed ${formatCellCoord(col, row)} (${targetStar}★) — 1× Run Hammer used!`
+        `🔨 Smashed ${formatCellCoord(col, row)} (${targetStar}★) — ${nextCount}/${MAX_HAMMERS} Hammer(s) remaining.`
       );
       setTimeout(() => setToastMessage(null), 3500);
     },
-    [board, hammerAvailable, pushHistory, activeBrush]
+    [board, hammerCount, pushHistory, activeBrush]
+  );
+
+  // Use the 1× Run Star on a board cell (raises 1★..8★ relic by +1 grade and triggers same merging rules)
+  const handleUseStar = useCallback(
+    (cellIndex: number) => {
+      const targetStar = board[cellIndex];
+      if (!starAvailable || targetStar === 0) return;
+      const { col, row } = indexToCoord(cellIndex);
+      const coordLabel = formatCellCoord(col, row);
+      if (targetStar >= 9) {
+        setToastMessage(
+          `⭐ Cannot use Star on ${coordLabel} (9★) — the Star only raises 1★–8★ relics by +1 grade!`
+        );
+        setTimeout(() => setToastMessage(null), 3500);
+        return;
+      }
+      const sim = simulateStarUpgrade(board, effectiveMaxStar, cellIndex);
+      if (!sim) return;
+
+      pushHistory();
+      setBoard(sim.nextBoard);
+      if (sim.nextMaxStar > effectiveMaxStar) {
+        setManualMaxStar(sim.nextMaxStar);
+      }
+      if (sim.tenStarsCreated > 0) {
+        setTenStarsAchieved((prev) => prev + sim.tenStarsCreated);
+        setManualMaxStar(10);
+      }
+      const nextHammers = Math.min(MAX_HAMMERS, hammerCount + sim.hammersEarned);
+      if (sim.hammersEarned > 0) {
+        setHammerCount(nextHammers);
+      }
+      setStarAvailable(false);
+      setHoveredStarTarget(null);
+      if (activeBrush === 'star') {
+        setActiveBrush(1);
+      }
+
+      const mergeMsg =
+        sim.merges.length > 0
+          ? ` ⇒ Merged ${sim.merges.map((m) => `${m.fromStar}★→${m.toStar}★`).join(' → ')}${
+              sim.tenStarsCreated > 0 ? ' (10★ Achieved & Cleared!)' : ''
+            }`
+          : '';
+      const hammerMsg =
+        sim.hammersEarned > 0
+          ? ` (+1 Hammer → ${nextHammers}/${MAX_HAMMERS})`
+          : '';
+      setToastMessage(
+        `⭐ Upgraded ${coordLabel} (${targetStar}★ → ${targetStar + 1}★)${mergeMsg}${hammerMsg}!`
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    },
+    [board, starAvailable, effectiveMaxStar, pushHistory, hammerCount, activeBrush]
   );
 
   // Clear Board / Reset Run
@@ -265,10 +388,15 @@ export const App: React.FC = () => {
     setCurrentPiece(DEFAULT_CURRENT_PIECE);
     setNextPiece(DEFAULT_NEXT_PIECE);
     setNextPieceKnown(true);
-    setHammerAvailable(true);
+    setHammerCount(INITIAL_HAMMERS);
+    setStarAvailable(true);
+    setPlacementsMade(0);
+    setTenStarsAchieved(0);
     setActivePresetId(null);
     setSelectedMoveId(null);
-    setToastMessage('Board cleared — reset to fresh run (1× Hammer restored).');
+    setToastMessage(
+      `Board cleared — reset to fresh run (1/${MAX_HAMMERS} Hammer & 1× Star restored, 0/${MAX_RUN_PLACEMENTS} moves).`
+    );
     setTimeout(() => setToastMessage(null), 3000);
   }, [pushHistory]);
 
@@ -289,7 +417,10 @@ export const App: React.FC = () => {
         anchorTileIndex: preset.nextPiece.anchorTileIndex ?? 0,
       });
       setNextPieceKnown(preset.nextPieceKnown);
-      setHammerAvailable(true);
+      setHammerCount(INITIAL_HAMMERS);
+      setStarAvailable(true);
+      setPlacementsMade(0);
+      setTenStarsAchieved(0);
       setActivePresetId(preset.id);
       setSelectedMoveId(null);
     },
@@ -304,7 +435,10 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      hammerAvailable,
+      hammerCount,
+      starAvailable,
+      placementsMade,
+      tenStarsAchieved,
     });
     window.history.replaceState(null, '', `#${hash}`);
     if (navigator.clipboard) {
@@ -318,7 +452,10 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    hammerAvailable,
+    hammerCount,
+    starAvailable,
+    placementsMade,
+    tenStarsAchieved,
   ]);
 
   // Compute Live Board Health KPIs
@@ -351,6 +488,8 @@ export const App: React.FC = () => {
     [board]
   );
 
+  const placementsRemaining = Math.max(0, MAX_RUN_PLACEMENTS - placementsMade);
+
   // Run 2-Ply Solver
   const solverResult = useMemo(() => {
     return solveBestMoves(
@@ -359,7 +498,8 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      hammerAvailable
+      hammerCount,
+      placementsRemaining
     );
   }, [
     board,
@@ -367,10 +507,11 @@ export const App: React.FC = () => {
     currentPiece,
     nextPiece,
     nextPieceKnown,
-    hammerAvailable,
+    hammerCount,
+    placementsRemaining,
   ]);
 
-  // Evaluate 1× Run Hammer Advisor
+  // Evaluate Run Hammer Advisor (0..2 Hammers)
   const hammerAdvice = useMemo(() => {
     return evaluateHammerAdvice(
       board,
@@ -378,7 +519,8 @@ export const App: React.FC = () => {
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      solverResult
+      solverResult,
+      hammerCount
     );
   }, [
     board,
@@ -387,6 +529,28 @@ export const App: React.FC = () => {
     nextPiece,
     nextPieceKnown,
     solverResult,
+    hammerCount,
+  ]);
+
+  // Evaluate 1× Run Star Advisor (Raises 1★..8★ relic by +1 grade)
+  const starAdvice = useMemo(() => {
+    return evaluateStarAdvice(
+      board,
+      effectiveMaxStar,
+      currentPiece,
+      nextPiece,
+      nextPieceKnown,
+      solverResult,
+      hammerCount
+    );
+  }, [
+    board,
+    effectiveMaxStar,
+    currentPiece,
+    nextPiece,
+    nextPieceKnown,
+    solverResult,
+    hammerCount,
   ]);
 
   // Determine which move is currently previewed on the Honeycomb Board
@@ -409,11 +573,53 @@ export const App: React.FC = () => {
   // Apply Recommended Move (Ply 1 Only — Play-Along Loop)
   const handleApplyPly1Move = useCallback(
     (move: CandidateMove) => {
+      if (placementsMade >= MAX_RUN_PLACEMENTS) {
+        setToastMessage(
+          `🏁 Maximum of ${MAX_RUN_PLACEMENTS} placements reached for this run!`
+        );
+        setTimeout(() => setToastMessage(null), 3500);
+        return;
+      }
+
       pushHistory();
 
       setBoard(move.ply1Sim.nextBoard);
-      if (manualMaxStar !== null && move.ply1Sim.nextMaxStar > manualMaxStar) {
+      if (
+        move.ply1Sim.nextMaxStar > effectiveMaxStar ||
+        (manualMaxStar !== null && move.ply1Sim.nextMaxStar > manualMaxStar)
+      ) {
         setManualMaxStar(move.ply1Sim.nextMaxStar);
+      }
+
+      if (move.ply1Sim.tenStarsCreated > 0) {
+        setTenStarsAchieved((prev) => prev + move.ply1Sim.tenStarsCreated);
+        setManualMaxStar(10);
+      }
+
+      const nextHammers = Math.min(
+        MAX_HAMMERS,
+        hammerCount + move.ply1Sim.hammersEarned
+      );
+      if (move.ply1Sim.hammersEarned > 0) {
+        setHammerCount(nextHammers);
+      }
+
+      setPlacementsMade((prev) => Math.min(MAX_RUN_PLACEMENTS, prev + 1));
+
+      if (move.ply1Sim.tenStarsCreated > 0 || move.ply1Sim.hammersEarned > 0) {
+        const parts: string[] = [];
+        if (move.ply1Sim.tenStarsCreated > 0) {
+          parts.push(
+            `👑 10★ Mythic Relic Achieved & Cleared from Board!`
+          );
+        }
+        if (move.ply1Sim.hammersEarned > 0) {
+          parts.push(
+            `🔨 5+ Relic Merge earned +1 Hammer (${nextHammers}/${MAX_HAMMERS})!`
+          );
+        }
+        setToastMessage(parts.join(' '));
+        setTimeout(() => setToastMessage(null), 4000);
       }
 
       // Promote Next Piece -> Current Piece
@@ -428,24 +634,52 @@ export const App: React.FC = () => {
       setSelectedMoveId(null);
       setHoveredMoveId(null);
     },
-    [pushHistory, manualMaxStar, nextPieceKnown, nextPiece]
+    [
+      placementsMade,
+      pushHistory,
+      effectiveMaxStar,
+      manualMaxStar,
+      hammerCount,
+      nextPieceKnown,
+      nextPiece,
+    ]
   );
 
   // Apply Both Moves (Ply 1 + Best Ply 2)
   const handleApplyBothMoves = useCallback(
     (move: CandidateMove) => {
-      if (!move.bestPly2) {
+      if (!move.bestPly2 || placementsMade >= MAX_RUN_PLACEMENTS - 1) {
         handleApplyPly1Move(move);
         return;
       }
       pushHistory();
       setBoard(move.bestPly2.sim.nextBoard);
+      const maxStarReached = Math.max(
+        move.ply1Sim.nextMaxStar,
+        move.bestPly2.sim.nextMaxStar
+      );
       if (
-        manualMaxStar !== null &&
-        move.bestPly2.sim.nextMaxStar > manualMaxStar
+        maxStarReached > effectiveMaxStar ||
+        (manualMaxStar !== null && maxStarReached > manualMaxStar)
       ) {
-        setManualMaxStar(move.bestPly2.sim.nextMaxStar);
+        setManualMaxStar(maxStarReached);
       }
+      const totalTenStars =
+        move.ply1Sim.tenStarsCreated + move.bestPly2.sim.tenStarsCreated;
+      if (totalTenStars > 0) {
+        setTenStarsAchieved((prev) => prev + totalTenStars);
+        setManualMaxStar(10);
+      }
+      const totalHammersEarned =
+        move.ply1Sim.hammersEarned + move.bestPly2.sim.hammersEarned;
+      const nextHammers = Math.min(
+        MAX_HAMMERS,
+        hammerCount + totalHammersEarned
+      );
+      if (totalHammersEarned > 0) {
+        setHammerCount(nextHammers);
+      }
+      setPlacementsMade((prev) => Math.min(MAX_RUN_PLACEMENTS, prev + 2));
       setSelectedMoveId(null);
       setHoveredMoveId(null);
       setToastMessage(
@@ -453,7 +687,14 @@ export const App: React.FC = () => {
       );
       setTimeout(() => setToastMessage(null), 3500);
     },
-    [handleApplyPly1Move, pushHistory, manualMaxStar]
+    [
+      placementsMade,
+      handleApplyPly1Move,
+      pushHistory,
+      effectiveMaxStar,
+      manualMaxStar,
+      hammerCount,
+    ]
   );
 
   const activePreset = useMemo(
@@ -481,16 +722,33 @@ export const App: React.FC = () => {
       <TopProgressionHeader
         viewMode={viewMode}
         onChangeViewMode={handleChangeViewMode}
-        hammerAvailable={hammerAvailable}
-        onToggleHammerAvailable={(avail) => {
+        hammerCount={hammerCount}
+        onChangeHammerCount={(cnt) => {
           pushHistory();
-          setHammerAvailable(avail);
-          if (!avail && activeBrush === 'hammer') {
+          const clamped = Math.max(0, Math.min(MAX_HAMMERS, cnt));
+          setHammerCount(clamped);
+          if (clamped === 0 && activeBrush === 'hammer') {
             setActiveBrush(1);
           }
         }}
         hammerAdvice={hammerAdvice}
         onUseHammer={handleUseHammer}
+        starAvailable={starAvailable}
+        onToggleStarAvailable={(avail) => {
+          pushHistory();
+          setStarAvailable(avail);
+          if (!avail && activeBrush === 'star') {
+            setActiveBrush(1);
+          }
+        }}
+        starAdvice={starAdvice}
+        onUseStar={handleUseStar}
+        placementsMade={placementsMade}
+        onChangePlacementsMade={(cnt) => {
+          pushHistory();
+          setPlacementsMade(Math.max(0, Math.min(MAX_RUN_PLACEMENTS, cnt)));
+        }}
+        tenStarsAchieved={tenStarsAchieved}
         activeMove={activePreviewMove.move}
         onApplyActiveMove={handleApplyPly1Move}
         maxUnlockedStar={effectiveMaxStar}
@@ -498,6 +756,9 @@ export const App: React.FC = () => {
         onSelectMaxStar={(star) => {
           pushHistory();
           setManualMaxStar(star);
+          if (star === 10) {
+            setTenStarsAchieved((prev) => Math.max(1, prev));
+          }
         }}
         onResetAutoMaxStar={() => setManualMaxStar(null)}
         board={board}
@@ -577,15 +838,26 @@ export const App: React.FC = () => {
               activeBrush={activeBrush}
               onChangeBrush={setActiveBrush}
               onSetCellStar={handleSetCellStar}
-              hammerAvailable={hammerAvailable}
+              hammerCount={hammerCount}
               onUseHammer={handleUseHammer}
               hammerTargetCell={
                 hoveredHammerTarget ??
                 (activeBrush === 'hammer' ||
                 (viewMode === 'simple' &&
-                  hammerAvailable &&
+                  hammerCount > 0 &&
                   hammerAdvice.shouldUseNow)
                   ? hammerAdvice.recommendedTarget?.cellIndex ?? null
+                  : null)
+              }
+              starAvailable={starAvailable}
+              onUseStar={handleUseStar}
+              starTargetCell={
+                hoveredStarTarget ??
+                (activeBrush === 'star' ||
+                (viewMode === 'simple' &&
+                  starAvailable &&
+                  starAdvice.shouldUseNow)
+                  ? starAdvice.recommendedTarget?.cellIndex ?? null
                   : null)
               }
               previewMove={
@@ -594,6 +866,11 @@ export const App: React.FC = () => {
                   hoveredHammerTarget &&
                 hammerAdvice.recommendedTarget.bestMoveAfterHammer
                   ? hammerAdvice.recommendedTarget.bestMoveAfterHammer
+                  : hoveredStarTarget !== null &&
+                    starAdvice.recommendedTarget?.cellIndex ===
+                      hoveredStarTarget &&
+                    starAdvice.recommendedTarget.bestMoveAfterStar
+                  ? starAdvice.recommendedTarget.bestMoveAfterStar
                   : activePreviewMove.move
               }
               previewRank={activePreviewMove.rank}
@@ -637,17 +914,34 @@ export const App: React.FC = () => {
             allCandidates={solverResult.candidates}
             lethalMoves={solverResult.lethalMoves}
             elapsedMs={solverResult.elapsedMs}
-            hammerAvailable={hammerAvailable}
+            hammerCount={hammerCount}
             hammerAdvice={hammerAdvice}
             onUseHammer={handleUseHammer}
-            onToggleHammerAvailable={(avail) => {
+            onChangeHammerCount={(cnt) => {
               pushHistory();
-              setHammerAvailable(avail);
-              if (!avail && activeBrush === 'hammer') {
+              const clamped = Math.max(0, Math.min(MAX_HAMMERS, cnt));
+              setHammerCount(clamped);
+              if (clamped === 0 && activeBrush === 'hammer') {
                 setActiveBrush(1);
               }
             }}
             onHoverHammerTarget={setHoveredHammerTarget}
+            starAvailable={starAvailable}
+            starAdvice={starAdvice}
+            onUseStar={handleUseStar}
+            onToggleStarAvailable={(avail) => {
+              pushHistory();
+              setStarAvailable(avail);
+              if (!avail && activeBrush === 'star') {
+                setActiveBrush(1);
+              }
+            }}
+            onHoverStarTarget={setHoveredStarTarget}
+            placementsMade={placementsMade}
+            onChangePlacementsMade={(cnt) => {
+              pushHistory();
+              setPlacementsMade(Math.max(0, Math.min(MAX_RUN_PLACEMENTS, cnt)));
+            }}
             selectedMoveId={selectedMoveId}
             hoveredMoveId={hoveredMoveId}
             onSelectMove={setSelectedMoveId}

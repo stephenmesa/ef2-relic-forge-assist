@@ -1,9 +1,11 @@
 import React from 'react';
 import {
   AlertTriangle,
+  Award,
   CheckCircle2,
   Flame,
   Hammer,
+  Hash,
   Lock,
   Play,
   Redo2,
@@ -12,16 +14,23 @@ import {
   Skull,
   SlidersHorizontal,
   Sparkles,
+  Star,
   Undo2,
   Zap,
 } from 'lucide-react';
-import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
+import {
+  getMinActiveSpawnStar,
+  MAX_HAMMERS,
+  MAX_RUN_PLACEMENTS,
+  RELIC_SPECS,
+} from '../domain/constants';
 import { formatCellCoord } from '../domain/honeycomb';
 import { PRESET_SCENARIOS } from '../domain/presets';
 import {
   CandidateMove,
   HammerAdvice,
   PresetScenario,
+  StarAdvice,
   StragglerCellInfo,
 } from '../types/forge';
 import { getRelicSwatchStyle, RelicSvgIcon } from './RelicTileVisual';
@@ -29,10 +38,17 @@ import { getRelicSwatchStyle, RelicSvgIcon } from './RelicTileVisual';
 interface TopProgressionHeaderProps {
   viewMode: 'simple' | 'advanced';
   onChangeViewMode: (mode: 'simple' | 'advanced') => void;
-  hammerAvailable: boolean;
-  onToggleHammerAvailable: (available: boolean) => void;
+  hammerCount: number;
+  onChangeHammerCount: (count: number) => void;
   hammerAdvice?: HammerAdvice;
   onUseHammer?: (cellIndex: number) => void;
+  starAvailable: boolean;
+  onToggleStarAvailable: (available: boolean) => void;
+  starAdvice?: StarAdvice;
+  onUseStar?: (cellIndex: number) => void;
+  placementsMade: number;
+  onChangePlacementsMade: (count: number) => void;
+  tenStarsAchieved: number;
   activeMove: CandidateMove | null;
   onApplyActiveMove: (move: CandidateMove) => void;
   maxUnlockedStar: number;
@@ -58,10 +74,17 @@ interface TopProgressionHeaderProps {
 export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   viewMode,
   onChangeViewMode,
-  hammerAvailable,
-  onToggleHammerAvailable,
+  hammerCount,
+  onChangeHammerCount,
   hammerAdvice,
   onUseHammer,
+  starAvailable,
+  onToggleStarAvailable,
+  starAdvice,
+  onUseStar,
+  placementsMade,
+  onChangePlacementsMade,
+  tenStarsAchieved,
   activeMove,
   onApplyActiveMove,
   maxUnlockedStar,
@@ -87,6 +110,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   const deadCount = stragglers.filter((s) => s.status === 'dead').length;
   const atRiskCount = stragglers.filter((s) => s.status === 'at-risk').length;
   const isAdvanced = viewMode === 'advanced';
+  const hammerAvailable = hammerCount > 0;
+  const isTenStarAchieved = maxUnlockedStar >= 10 || tenStarsAchieved > 0;
 
   // Count how many tiles of each star exist on the board
   const starBoardCounts = new Array(11).fill(0);
@@ -144,8 +169,46 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 </button>
               )}
 
+            {/* If Star Advisor actively recommends upgrading now, surface 1-tap Upgrade button on mobile */}
+            {starAvailable &&
+              starAdvice?.shouldUseNow &&
+              starAdvice.recommendedTarget &&
+              onUseStar && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUseStar(starAdvice.recommendedTarget!.cellIndex)
+                  }
+                  className="lg:hidden px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-400 to-amber-300 hover:from-cyan-300 hover:to-amber-200 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md border border-cyan-100 transition-all"
+                  title={starAdvice.headline}
+                >
+                  <Star className="w-3.5 h-3.5 fill-current" />
+                  <span>
+                    Upgrade{' '}
+                    {formatCellCoord(
+                      starAdvice.recommendedTarget.col,
+                      starAdvice.recommendedTarget.row
+                    )}
+                  </span>
+                </button>
+              )}
+
+            {/* 10★ Achieved Badge (Visible in both Simple & Advanced views once achieved) */}
+            {isTenStarAchieved && (
+              <span
+                className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/25 via-rose-500/25 to-purple-500/25 border border-amber-300/60 text-amber-200 text-xs font-black flex items-center gap-1 shadow-[0_0_12px_rgba(251,191,36,0.3)]"
+                title="10★ Mythic Primordial Relic achieved! (10★ relics disappear from the board upon creation)"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-300" />
+                <span>
+                  10★ Achieved
+                  {tenStarsAchieved > 1 ? ` (${tenStarsAchieved}×)` : ''}
+                </span>
+              </span>
+            )}
+
             {/* Top Shortcut: Apply Selected / Best Move */}
-            {activeMove && (
+            {activeMove && placementsMade < MAX_RUN_PLACEMENTS && (
               <button
                 type="button"
                 onClick={() => onApplyActiveMove(activeMove)}
@@ -195,26 +258,83 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
               </button>
             </div>
 
-            {/* 1× Per Run Hammer Status Toggle */}
+            {/* Hammer Count Status Button (0..2, +1 on 5+ relic merge) */}
             <button
               type="button"
-              onClick={() => onToggleHammerAvailable(!hammerAvailable)}
+              onClick={() => {
+                // Cycle 1 -> 2 -> 0 -> 1
+                const nextCount =
+                  hammerCount === 1 ? 2 : hammerCount === 2 ? 0 : 1;
+                onChangeHammerCount(nextCount);
+              }}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                hammerAvailable
+                hammerCount > 0
                   ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
                   : 'bg-[#0D0F17] text-slate-400 border-[#293044] hover:text-slate-200'
               }`}
-              title="Toggle whether your single-use Run Hammer (destroys 1 relic on the board) is still available in this run"
+              title="Run Hammers (Start with 1; earn +1 when merging 5+ relics, max 2). Click to cycle 0 / 1 / 2."
             >
               <Hammer
                 className={`w-3.5 h-3.5 ${
-                  hammerAvailable ? 'text-emerald-400' : 'text-slate-500'
+                  hammerCount > 0 ? 'text-emerald-400' : 'text-slate-500'
                 }`}
               />
               <span>
-                1× Hammer: {hammerAvailable ? 'Ready' : 'Used'}
+                Hammer: {hammerCount}/{MAX_HAMMERS}
               </span>
             </button>
+
+            {/* 1× Per Run Star Status Toggle */}
+            <button
+              type="button"
+              onClick={() => onToggleStarAvailable(!starAvailable)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                starAvailable
+                  ? 'bg-cyan-500/20 text-cyan-200 border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+                  : 'bg-[#0D0F17] text-slate-400 border-[#293044] hover:text-slate-200'
+              }`}
+              title="Toggle whether your single-use Run Star (raises 1 relic by +1 grade, except 9★) is still available in this run"
+            >
+              <Star
+                className={`w-3.5 h-3.5 ${
+                  starAvailable ? 'text-cyan-300 fill-cyan-300/30' : 'text-slate-500'
+                }`}
+              />
+              <span>1× Star: {starAvailable ? 'Ready' : 'Used'}</span>
+            </button>
+
+            {/* Run Placements Counter (Max 1000 placements per run) */}
+            <div
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 ${
+                placementsMade >= MAX_RUN_PLACEMENTS
+                  ? 'bg-rose-950/60 text-rose-200 border-rose-500/60'
+                  : placementsMade >= MAX_RUN_PLACEMENTS - 25
+                  ? 'bg-amber-950/50 text-amber-200 border-amber-400/50'
+                  : 'bg-[#0D0F17] text-slate-300 border-[#293044]'
+              }`}
+              title={`Placements made in this run (Maximum ${MAX_RUN_PLACEMENTS} placements per run)`}
+            >
+              <Hash className="w-3.5 h-3.5 text-amber-400" />
+              <span>Moves:</span>
+              <input
+                type="number"
+                min={0}
+                max={MAX_RUN_PLACEMENTS}
+                aria-label="Run Placements Made"
+                value={placementsMade}
+                onChange={(e) => {
+                  const val = Math.max(
+                    0,
+                    Math.min(MAX_RUN_PLACEMENTS, parseInt(e.target.value, 10) || 0)
+                  );
+                  onChangePlacementsMade(val);
+                }}
+                className="w-14 bg-[#161B29] text-amber-200 font-mono font-bold text-center rounded px-1 py-0.5 border border-[#2E3650] focus:outline-none focus:ring-1 focus:ring-amber-400"
+              />
+              <span className="text-slate-400 font-mono">
+                / {MAX_RUN_PLACEMENTS}
+              </span>
+            </div>
 
             {/* Load Example Scenario Dropdown (Advanced View Only) */}
             {isAdvanced && (
@@ -325,8 +445,10 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 pt-1">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
                 const spec = RELIC_SPECS[star];
+                const isTenSlot = star === 10;
                 const isRetired = star < minActiveStar;
-                const isActivePool = star >= minActiveStar && star <= maxUnlockedStar;
+                const isActivePool =
+                  !isTenSlot && star >= minActiveStar && star <= maxUnlockedStar;
                 const isMaxUnlocked = star === maxUnlockedStar;
                 const isLocked = star > maxUnlockedStar;
                 const countOnBoard = starBoardCounts[star];
@@ -339,14 +461,20 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                     disabled={!canSelectAsMax}
                     onClick={() => canSelectAsMax && onSelectMaxStar(star)}
                     title={
-                      isRetired
+                      isTenSlot
+                        ? isTenStarAchieved
+                          ? `10★ (${spec.name}) — ACHIEVED! 10★ relics disappear from the board when created and are marked as achieved.`
+                          : `10★ (${spec.name}) — GOAL. When created, 10★ relics disappear from the board and are marked as achieved. Click to mark 10★ achieved.`
+                        : isRetired
                         ? `${star}★ (${spec.name}) — RETIRED (No longer spawns when M=${maxUnlockedStar}★). ${countOnBoard} on board.`
                         : isActivePool
                         ? `${star}★ (${spec.name}) — ACTIVE SPAWN POOL. Click to set M=${star}★.`
                         : `${star}★ (${spec.name}) — LOCKED. Click to set M=${star}★.`
                     }
                     className={`relative flex flex-col items-center justify-between p-1.5 rounded-lg border transition-all select-none ${
-                      isActivePool
+                      isTenSlot && isTenStarAchieved
+                        ? 'bg-gradient-to-b from-amber-950/60 to-[#1D2233] border-amber-300 shadow-[0_0_14px_rgba(251,191,36,0.4)]'
+                        : isActivePool
                         ? 'bg-[#1D2233] border-amber-400/80 shadow-[0_0_10px_rgba(245,158,11,0.22)]'
                         : isRetired
                         ? 'bg-rose-950/25 border-rose-800/50 opacity-75'
@@ -361,6 +489,11 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                       >
                         {star}★
                       </span>
+                      {isTenSlot && isTenStarAchieved && (
+                        <span className="text-[9px] text-amber-300 font-extrabold uppercase">
+                          👑 WON
+                        </span>
+                      )}
                       {isRetired && (
                         <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-400 font-extrabold uppercase">
                           <Skull className="w-3 h-3" />
@@ -391,18 +524,32 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                     {/* Bottom Status / Board Count */}
                     <div className="w-full flex items-center justify-between text-[9px] leading-none mt-1 pt-1 border-t border-white/10">
                       <span className="truncate text-slate-300 font-medium">
-                        {isRetired ? 'RETIRED' : isActivePool ? 'ACTIVE' : 'LOCKED'}
+                        {isTenSlot
+                          ? isTenStarAchieved
+                            ? 'ACHIEVED'
+                            : 'GOAL'
+                          : isRetired
+                          ? 'RETIRED'
+                          : isActivePool
+                          ? 'ACTIVE'
+                          : 'LOCKED'}
                       </span>
-                      {countOnBoard > 0 && (
-                        <span
-                          className={`px-1 rounded font-bold ${
-                            isRetired
-                              ? 'bg-rose-600 text-white animate-pulse'
-                              : 'bg-slate-700 text-slate-200'
-                          }`}
-                        >
-                          {countOnBoard}×
+                      {isTenSlot && isTenStarAchieved ? (
+                        <span className="px-1 rounded font-bold bg-amber-400 text-slate-950">
+                          {tenStarsAchieved > 0 ? `${tenStarsAchieved}×` : '✓'}
                         </span>
+                      ) : (
+                        countOnBoard > 0 && (
+                          <span
+                            className={`px-1 rounded font-bold ${
+                              isRetired
+                                ? 'bg-rose-600 text-white animate-pulse'
+                                : 'bg-slate-700 text-slate-200'
+                            }`}
+                          >
+                            {countOnBoard}×
+                          </span>
+                        )
                       )}
                     </div>
                   </button>

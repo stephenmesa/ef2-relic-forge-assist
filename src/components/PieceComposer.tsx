@@ -421,7 +421,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
             onClick={() => setShowAllStars((v) => !v)}
             className="text-[10px] text-slate-400 hover:text-amber-300 font-semibold"
           >
-            {showAllStars ? 'Active Pool' : 'All 1★–10★'}
+            {showAllStars ? 'Active Pool' : 'All 1★–9★'}
           </button>
         </div>
 
@@ -473,7 +473,7 @@ const SinglePieceEditorCard: React.FC<SinglePieceEditorCardProps> = ({
             </button>
           )}
 
-          {(showAllStars ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : activePool).map(
+          {(showAllStars ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : activePool).map(
             (star) => {
               const isCurrentTileStar = piece.tileStars[safeSelectedIdx] === star;
               return (

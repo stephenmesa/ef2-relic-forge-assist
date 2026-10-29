@@ -4,12 +4,16 @@ import {
   SimulationResult,
   StragglerCellInfo,
 } from '../types/forge';
-import { getMinActiveSpawnStar } from './constants';
+import {
+  getMinActiveSpawnStar,
+  MAX_STAR_UPGRADE_TARGET_GRADE,
+} from './constants';
 import {
   getCellVisualY,
   getPrecomputedNeighbors,
   getValidCellIndices,
   indexToCoord,
+  isCellIndexValid,
   resolvePiecePlacement,
 } from './honeycomb';
 
@@ -207,6 +211,8 @@ export function simulatePlacement(
 
   const merges: MergeStep[] = [];
   let totalTilesCleared = 0;
+  let hammersEarned = 0;
+  let tenStarsCreated = 0;
 
   // Track chain depth per anchor cell
   const chainDepthByCell = new Map<number, number>();
@@ -253,9 +259,14 @@ export function simulatePlacement(
     candidateComponents.sort((a, b) => a.star - b.star);
     const chosen = candidateComponents[0];
     const fromStar = chosen.star;
-    // Super evolution rule: 5+ relics evolve +2 levels; 3 or 4 relics evolve +1 level
-    const starJump = chosen.component.length >= 5 ? 2 : 1;
+    // Super evolution rule: 5+ relics evolve +2 levels AND earn +1 Hammer (up to max 2); 3 or 4 relics evolve +1 level
+    const isSuperMerge = chosen.component.length >= 5;
+    const starJump = isSuperMerge ? 2 : 1;
     const toStar = Math.min(10, fromStar + starJump);
+
+    if (isSuperMerge) {
+      hammersEarned++;
+    }
 
     const landingCell = selectMergeLandingCell(
       chosen.anchorsInComp,
@@ -283,13 +294,22 @@ export function simulatePlacement(
       }
     }
 
-    // Spawn upgraded tile on landingCell
-    nextBoard[landingCell] = toStar;
-    activeAnchorCells.add(landingCell);
-    upgradedCells.add(landingCell);
-    chainDepthByCell.set(landingCell, newDepth);
-
-    totalTilesCleared += chosen.component.length - 1;
+    const disappearedAsTenStar = toStar === 10;
+    if (disappearedAsTenStar) {
+      // 10-star relics disappear from the board when created and are marked as achieved!
+      nextBoard[landingCell] = 0;
+      activeAnchorCells.delete(landingCell);
+      upgradedCells.delete(landingCell);
+      totalTilesCleared += chosen.component.length;
+      tenStarsCreated++;
+    } else {
+      // Spawn upgraded tile on landingCell
+      nextBoard[landingCell] = toStar;
+      activeAnchorCells.add(landingCell);
+      upgradedCells.add(landingCell);
+      chainDepthByCell.set(landingCell, newDepth);
+      totalTilesCleared += chosen.component.length - 1;
+    }
 
     merges.push({
       stepIndex: prevDepth,
@@ -297,6 +317,8 @@ export function simulatePlacement(
       toStar,
       mergedCells: chosen.component,
       landingCell,
+      earnedHammer: isSuperMerge,
+      disappearedAsTenStar,
     });
   }
 
@@ -305,6 +327,11 @@ export function simulatePlacement(
   for (const idx of validIndices) {
     if (nextBoard[idx] > nextMaxStar) {
       nextMaxStar = nextBoard[idx];
+    }
+  }
+  for (const m of merges) {
+    if (m.toStar > nextMaxStar) {
+      nextMaxStar = m.toStar;
     }
   }
 
@@ -331,7 +358,43 @@ export function simulatePlacement(
     totalTilesCleared,
     unlockedNewMaxTier: nextMaxStar > maxUnlockedStar,
     newlyRetiredStars,
+    hammersEarned,
+    tenStarsCreated,
   };
+}
+
+/**
+ * Simulates using the once-per-run Star on a board cell (`cellIndex`).
+ * - Raises the relic at `cellIndex` by +1 grade (valid for 1★..8★; cannot be used on 9★ or empty cells).
+ * - Applies the exact same merging and cascade rules as placing a tile of that new grade at `cellIndex`
+ *   (including 5+ relic super-merges granting +2★ and +1 Hammer, and 10★ relics disappearing from the board).
+ */
+export function simulateStarUpgrade(
+  board: Uint8Array,
+  maxUnlockedStar: number,
+  cellIndex: number
+): SimulationResult | null {
+  if (!isCellIndexValid(cellIndex)) return null;
+  const currentStar = board[cellIndex];
+  if (currentStar < 1 || currentStar > MAX_STAR_UPGRADE_TARGET_GRADE) {
+    return null;
+  }
+
+  const upgradedStar = currentStar + 1;
+  const boardWithoutTarget = new Uint8Array(board);
+  boardWithoutTarget[cellIndex] = 0;
+
+  const { col, row } = indexToCoord(cellIndex);
+  return simulatePlacement(boardWithoutTarget, maxUnlockedStar, [
+    {
+      tileIndex: 0,
+      cellIndex,
+      col,
+      row,
+      star: upgradedStar,
+      isAnchor: true,
+    },
+  ]);
 }
 
 /**

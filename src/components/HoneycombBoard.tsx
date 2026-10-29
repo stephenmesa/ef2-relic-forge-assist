@@ -9,8 +9,14 @@ import {
   Layers,
   MousePointerClick,
   Sparkles,
+  Star,
 } from 'lucide-react';
-import { getMinActiveSpawnStar, RELIC_SPECS } from '../domain/constants';
+import {
+  getMinActiveSpawnStar,
+  MAX_HAMMERS,
+  MAX_STAR_UPGRADE_TARGET_GRADE,
+  RELIC_SPECS,
+} from '../domain/constants';
 import {
   BOARD_COLS,
   cellToIndex,
@@ -29,12 +35,17 @@ interface HoneycombBoardProps {
   board: Uint8Array;
   maxUnlockedStar: number;
   stragglers: StragglerCellInfo[];
-  activeBrush: number | 'inspect' | 'popover' | 'hammer'; // 0 = eraser, 1..10 = paint star, 'inspect' = inspect neighbors, 'popover' = click picker, 'hammer' = 1× smash relic
-  onChangeBrush: (brush: number | 'inspect' | 'popover' | 'hammer') => void;
+  activeBrush: number | 'inspect' | 'popover' | 'hammer' | 'star'; // 0 = eraser, 1..9 = paint star, 'inspect' = inspect neighbors, 'popover' = click picker, 'hammer' = smash relic, 'star' = +1★ relic upgrade
+  onChangeBrush: (
+    brush: number | 'inspect' | 'popover' | 'hammer' | 'star'
+  ) => void;
   onSetCellStar: (cellIndex: number, star: number) => void;
-  hammerAvailable: boolean;
+  hammerCount: number;
   onUseHammer: (cellIndex: number) => void;
   hammerTargetCell?: number | null;
+  starAvailable: boolean;
+  onUseStar: (cellIndex: number) => void;
+  starTargetCell?: number | null;
   previewMove: CandidateMove | null;
   previewRank: number | null;
   showPly2Ghost: boolean;
@@ -49,15 +60,19 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
   activeBrush,
   onChangeBrush,
   onSetCellStar,
-  hammerAvailable,
+  hammerCount,
   onUseHammer,
   hammerTargetCell = null,
+  starAvailable,
+  onUseStar,
+  starTargetCell = null,
   previewMove,
   previewRank,
   showPly2Ghost,
   onToggleShowPly2Ghost,
 }) => {
   const isAdvanced = viewMode === 'advanced';
+  const hammerAvailable = hammerCount > 0;
   const [hoveredCell, setHoveredCell] = useState<{ col: number; row: number } | null>(
     null
   );
@@ -91,9 +106,6 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
       if (e.key >= '1' && e.key <= '9') {
         e.preventDefault();
         onSetCellStar(idx, parseInt(e.key, 10));
-      } else if (e.key === '0') {
-        e.preventDefault();
-        onSetCellStar(idx, 10);
       } else if (
         e.key === 'Backspace' ||
         e.key === 'Delete' ||
@@ -206,6 +218,14 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
       return;
     }
 
+    if (activeBrush === 'star') {
+      if (board[idx] > 0) {
+        onUseStar(idx);
+      }
+      setPopoverCell(null);
+      return;
+    }
+
     if (activeBrush === 'popover') {
       setPopoverCell(
         popoverCell && popoverCell.col === col && popoverCell.row === row
@@ -282,7 +302,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
           )}
         </div>
 
-        {/* Palette Buttons: 1× Hammer + Eraser + 1★ to 10★ */}
+        {/* Palette Buttons: Hammer + 1× Star + Eraser + 1★ to 9★ */}
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
@@ -299,12 +319,37 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
             }`}
             title={
               hammerAvailable
-                ? '1× Run Hammer: Click any relic on the board to destroy it (marks your 1× Hammer as used for this run)'
-                : '1× Run Hammer already used in this run (toggle in top bar to restore)'
+                ? `Run Hammer (${hammerCount}/${MAX_HAMMERS}): Click any relic on the board to destroy it. Merging 5+ relics earns +1 Hammer (max 2).`
+                : '0 Hammers available (earn +1 Hammer by merging 5+ relics, or adjust in top bar)'
             }
           >
             <Hammer className="w-3 h-3" />
-            <span>{hammerAvailable ? '1× Smash' : 'Used'}</span>
+            <span>
+              {hammerAvailable ? `Smash (${hammerCount}/${MAX_HAMMERS})` : `0/${MAX_HAMMERS}`}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            disabled={!starAvailable}
+            onClick={() =>
+              onChangeBrush(activeBrush === 'star' ? minActiveStar : 'star')
+            }
+            className={`px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 border transition-all ${
+              activeBrush === 'star'
+                ? 'bg-cyan-400 text-slate-950 border-cyan-200 ring-2 ring-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.55)]'
+                : starAvailable
+                ? 'bg-cyan-950/60 text-cyan-200 border-cyan-500/50 hover:bg-cyan-900/60'
+                : 'bg-[#141722] text-slate-500 border-slate-800 opacity-50 cursor-not-allowed'
+            }`}
+            title={
+              starAvailable
+                ? '1× Run Star: Click any 1★–8★ relic on the board to raise it by +1 grade (same merge rules apply; cannot be used on 9★)'
+                : '1× Run Star already used in this run (toggle in top bar to restore)'
+            }
+          >
+            <Star className="w-3 h-3" />
+            <span>{starAvailable ? '1× Star (+1★)' : 'Star Used'}</span>
           </button>
 
           <button
@@ -321,10 +366,11 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
             <span>Empty</span>
           </button>
 
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((star) => {
             const spec = RELIC_SPECS[star];
             const isSelected = activeBrush === star;
-            const isActiveSpawn = star >= minActiveStar && star <= maxUnlockedStar;
+            const isActiveSpawn =
+              star >= minActiveStar && star <= Math.min(9, maxUnlockedStar);
             const isRetired = star < minActiveStar;
 
             return (
@@ -344,7 +390,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                   }),
                   opacity: isRetired && !isSelected && isAdvanced ? 0.65 : 1,
                 }}
-                title={`Paint ${star}★ (${spec.name}) — Shortcut: ${star === 10 ? '0' : star}`}
+                title={`Paint ${star}★ (${spec.name}) — Shortcut: ${star}`}
               >
                 <span>{star}★</span>
                 {isAdvanced && isActiveSpawn && (
@@ -442,6 +488,10 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                   const isPopoverOpen =
                     popoverCell?.col === col && popoverCell?.row === row;
                   const isHammerTarget = hammerTargetCell === cellIdx;
+                  const isStarTarget =
+                    starTargetCell === cellIdx &&
+                    star >= 1 &&
+                    star <= MAX_STAR_UPGRADE_TARGET_GRADE;
 
                   return (
                     <div
@@ -461,6 +511,8 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                       } ${
                         isHammerTarget
                           ? 'ring-2 ring-amber-300 z-30 scale-[1.04] shadow-[0_0_20px_rgba(251,191,36,0.75)]'
+                          : isStarTarget
+                          ? 'ring-2 ring-cyan-300 z-30 scale-[1.04] shadow-[0_0_20px_rgba(34,211,238,0.75)]'
                           : straggler?.status === 'dead'
                           ? 'ring-2 ring-rose-500 animate-pulseHazard shadow-[0_0_16px_rgba(244,63,94,0.55)]'
                           : straggler?.status === 'at-risk'
@@ -490,6 +542,16 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                           <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 font-black text-[9px] shadow flex items-center gap-0.5">
                             <Hammer className="w-2.5 h-2.5" />
                             <span>SMASH</span>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Star Upgrade Target Highlight Overlay */}
+                      {isStarTarget && (
+                        <div className="absolute inset-0 z-30 rounded-xl bg-cyan-500/25 border-2 border-cyan-300 flex items-end justify-center pb-1 pointer-events-none">
+                          <span className="px-1.5 py-0.5 rounded bg-cyan-300 text-slate-950 font-black text-[9px] shadow flex items-center gap-0.5">
+                            <Star className="w-2.5 h-2.5 fill-current" />
+                            <span>{star}→{star + 1}★</span>
                           </span>
                         </div>
                       )}
@@ -543,6 +605,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                           <span className="px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-[9px] sm:text-[10px] shadow-lg border border-white flex items-center gap-0.5 whitespace-nowrap">
                             <Sparkles className="w-2.5 h-2.5" />
                             {landingOutcome.chainSteps.join('→')}★
+                            {landingOutcome.finalStar === 10 ? ' (CLEARS)' : ''}
                           </span>
                         </div>
                       )}
@@ -599,7 +662,7 @@ export const HoneycombBoard: React.FC<HoneycombBoardProps> = ({
                           >
                             Clear (Empty)
                           </button>
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => (
                             <button
                               key={s}
                               type="button"

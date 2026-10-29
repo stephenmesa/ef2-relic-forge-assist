@@ -111,7 +111,17 @@ export function encodeStateToHash(state: {
   nextPiece: PresetScenario['nextPiece'];
   nextPieceKnown: boolean;
   hammerAvailable?: boolean;
+  hammerCount?: number;
+  starAvailable?: boolean;
+  placementsMade?: number;
+  tenStarsAchieved?: number;
 }): string {
+  const hammers =
+    state.hammerCount !== undefined
+      ? Math.max(0, Math.min(2, state.hammerCount))
+      : state.hammerAvailable === false
+      ? 0
+      : 1;
   const payload = {
     u: state.maxUnlockedStar,
     b: Array.from(state.board),
@@ -128,7 +138,10 @@ export function encodeStateToHash(state: {
       state.nextPiece.anchorTileIndex ?? 0,
     ],
     k: state.nextPieceKnown ? 1 : 0,
-    h: state.hammerAvailable === false ? 0 : 1,
+    h: hammers,
+    s: state.starAvailable === false ? 0 : 1,
+    p: Math.max(0, Math.min(1000, state.placementsMade ?? 0)),
+    t: Math.max(0, state.tenStarsAchieved ?? 0),
   };
   return btoa(JSON.stringify(payload));
 }
@@ -140,6 +153,10 @@ export function decodeStateFromHash(hashStr: string): {
   nextPiece: PresetScenario['nextPiece'];
   nextPieceKnown: boolean;
   hammerAvailable: boolean;
+  hammerCount: number;
+  starAvailable: boolean;
+  placementsMade: number;
+  tenStarsAchieved: number;
 } | null {
   try {
     const clean = hashStr.replace(/^#/, '').trim();
@@ -148,9 +165,28 @@ export function decodeStateFromHash(hashStr: string): {
     if (!parsed || !Array.isArray(parsed.b) || parsed.b.length !== 25) {
       return null;
     }
+    const rawHammer = typeof parsed.h === 'number' ? parsed.h : 1;
+    const hammerCount = Math.max(0, Math.min(2, rawHammer));
+    const maxUnlockedStar = Math.max(4, Math.min(10, Number(parsed.u) || 4));
+    // Note: 10★ relics disappear from the board when created, so board values clamp to 0..9
+    let hadTenOnBoard = 0;
+    const cleanedBoard = new Uint8Array(
+      parsed.b.map((v: number) => {
+        const clamped = Math.max(0, Math.min(10, Number(v) || 0));
+        if (clamped === 10) {
+          hadTenOnBoard++;
+          return 0;
+        }
+        return clamped;
+      })
+    );
+    const tenStarsAchieved = Math.max(
+      hadTenOnBoard,
+      Number(parsed.t) || (maxUnlockedStar >= 10 ? 1 : 0)
+    );
     return {
-      maxUnlockedStar: Math.max(4, Math.min(10, Number(parsed.u) || 4)),
-      board: new Uint8Array(parsed.b.map((v: number) => Math.max(0, Math.min(10, Number(v) || 0)))),
+      maxUnlockedStar: hadTenOnBoard > 0 ? 10 : maxUnlockedStar,
+      board: cleanedBoard,
       currentPiece: {
         shapeId: parsed.c?.[0] || 'pair',
         rotation: Number(parsed.c?.[1]) || 0,
@@ -166,7 +202,11 @@ export function decodeStateFromHash(hashStr: string): {
           typeof parsed.n?.[3] === 'number' ? parsed.n[3] : 0,
       },
       nextPieceKnown: parsed.k !== 0,
-      hammerAvailable: parsed.h !== 0,
+      hammerAvailable: hammerCount > 0,
+      hammerCount,
+      starAvailable: parsed.s !== 0,
+      placementsMade: Math.max(0, Math.min(1000, Number(parsed.p) || 0)),
+      tenStarsAchieved,
     };
   } catch {
     return null;

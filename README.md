@@ -96,6 +96,28 @@
 | `npm run build` | Type-checks with TypeScript and compiles the production bundle to `dist/`. |
 | `npm run preview` | Previews the production build locally. |
 | `npm test` | Runs the Vitest test suite. |
+| `npm run eval` | Runs a standard 30-game Monte Carlo evaluation suite and displays the Solver Rating. |
+| `npm run eval:quick` | Fast 15-game evaluation (<12 seconds) for rapid iteration. |
+| `npm run eval:deep` | Deep 100-game evaluation for high statistical precision. |
+| `npm run eval:compare` | Compares current solver performance against `.eval-baseline.json` to detect improvements or regressions. |
+| `npm run eval:save-baseline` | Saves the current evaluation run as the official baseline for future comparisons. |
+
+---
+
+## 📊 Solver Strategy Evaluation & Rating Framework
+
+EF2 Relic Forge Advisor includes a high-throughput, deterministic Monte Carlo evaluation framework to benchmark solver heuristics and determine whether modifications are **better or worse**:
+
+- **Reproducible Seeded PRNG:** Uses 32-bit Mulberry32 PRNG so comparative runs face the exact identical sequence of rolled pieces across identical game seeds.
+- **Full Game Simulation:** Plays full games from empty board to 10★ Mythic Primordial Relic / board lock, managing 60° rotations, cascades, super-merges, hammer inventory, and single-use star upgrades.
+- **Solver Rating Scale (0–100, S+ to F, & Relic ELO 1000–2500):**
+  - **👑 10★ Mythic Success Rate (40% weight):** Conversion rate to 10★ Mythic Primordial Relics.
+  - **📈 Peak Tier Progression (25% weight):** Normalized average highest tier achieved (4★ to 10★).
+  - **🛡️ Board Survivability (15% weight):** Average number of placements made before board saturation.
+  - **🔨 Super-Merge Economy (10% weight):** Frequency of 5+ relic super-merges (+2★ jump and +1 Hammer refund).
+  - **✨ Board Cleanliness (10% weight):** Minimization of retired dead space / trapped stragglers.
+- **A/B Comparison Mode (`--compare`):** Side-by-side delta reporting with statistical significance indicators and an automated verdict (`IMPROVEMENT`, `REGRESSION`, or `NEUTRAL`).
+- **Interactive UI Evaluation Lab:** Click the **Evals** button in the header toolbar to run simulations, view live progress, inspect distribution charts, and compare with saved baselines directly in the browser!
 
 ---
 
@@ -103,8 +125,11 @@
 
 ```text
 EF2-Relic-Forge-Assist/
+├── scripts/
+│   └── eval.ts                  # CLI evaluation & comparison runner script
 ├── src/
 │   ├── components/            # UI Components
+│   │   ├── EvalRunnerModal.tsx      # In-browser Monte Carlo evaluation & comparison lab
 │   │   ├── HoneycombBoard.tsx       # Hexagonal SVG board rendering & ghost overlays
 │   │   ├── PieceComposer.tsx        # Piece shape selector, rotation wheel & star picker
 │   │   ├── RecommendationsPanel.tsx # Ranked move list, cascade details & ply-2 preview
@@ -112,6 +137,8 @@ EF2-Relic-Forge-Assist/
 │   │   └── TopProgressionHeader.tsx # Board mode toggle, spawn pool & preset scenario selector
 │   ├── domain/                # Game Logic & Math
 │   │   ├── constants.ts             # Relic tier data, piece shapes & spawn pool rules
+│   │   ├── evaluator.ts             # Fast deterministic simulation, solver rating & diff engine
+│   │   ├── evaluator.test.ts        # Eval test suite verifying determinism and diffs
 │   │   ├── honeycomb.ts             # Cube coordinates, 6-neighbor adjacency & axial math
 │   │   ├── presets.ts               # Scenario configurations & URL hash encoder/decoder
 │   │   ├── simulator.ts             # Cascade merges, super-merges & mobility analysis

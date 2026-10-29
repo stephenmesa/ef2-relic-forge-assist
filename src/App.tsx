@@ -9,6 +9,7 @@ import { HoneycombBoard } from './components/HoneycombBoard';
 import { PieceComposer } from './components/PieceComposer';
 import { RecommendationsPanel } from './components/RecommendationsPanel';
 import { TopProgressionHeader } from './components/TopProgressionHeader';
+import { EvalRunnerModal } from './components/EvalRunnerModal';
 import {
   INITIAL_HAMMERS,
   MAX_HAMMERS,
@@ -99,6 +100,7 @@ export const App: React.FC = () => {
   const [hoveredMoveId, setHoveredMoveId] = useState<string | null>(null);
   const [showPly2Ghost, setShowPly2Ghost] = useState<boolean>(true);
   const [blueprintMode, setBlueprintMode] = useState<boolean>(false);
+  const [isEvalModalOpen, setIsEvalModalOpen] = useState<boolean>(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -779,6 +781,7 @@ export const App: React.FC = () => {
         onClearBoard={handleClearBoard}
         onLoadPreset={handleLoadPreset}
         onShareState={handleShareState}
+        onOpenEvalModal={() => setIsEvalModalOpen(true)}
         activePresetId={activePresetId}
       />
 
@@ -976,6 +979,12 @@ export const App: React.FC = () => {
           </div>
         </footer>
       )}
+
+      {/* Strategy Evaluation & Rating Lab Modal */}
+      <EvalRunnerModal
+        isOpen={isEvalModalOpen}
+        onClose={() => setIsEvalModalOpen(false)}
+      />
     </div>
   );
 };

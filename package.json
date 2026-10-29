@@ -7,7 +7,12 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "vite-node scripts/eval.ts",
+    "eval:quick": "vite-node scripts/eval.ts --quick",
+    "eval:deep": "vite-node scripts/eval.ts --deep",
+    "eval:compare": "vite-node scripts/eval.ts --compare",
+    "eval:save-baseline": "vite-node scripts/eval.ts --save-baseline"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Activity,
   AlertTriangle,
   Award,
   CheckCircle2,
@@ -70,6 +71,7 @@ interface TopProgressionHeaderProps {
   onClearBoard: () => void;
   onLoadPreset: (preset: PresetScenario) => void;
   onShareState: () => void;
+  onOpenEvalModal?: () => void;
   activePresetId: string | null;
 }
 
@@ -108,6 +110,7 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   onClearBoard,
   onLoadPreset,
   onShareState,
+  onOpenEvalModal,
   activePresetId,
 }) => {
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
@@ -414,6 +417,17 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 >
                   <Share2 className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Share</span>
+                </button>
+              )}
+              {onOpenEvalModal && (
+                <button
+                  type="button"
+                  onClick={onOpenEvalModal}
+                  className="px-2.5 py-1 rounded text-xs font-bold text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 flex items-center gap-1.5 transition-colors"
+                  title="Open Strategy Evaluation & Rating Lab (Monte Carlo simulation)"
+                >
+                  <Activity className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Evals</span>
                 </button>
               )}
               <button

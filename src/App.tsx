@@ -11,6 +11,7 @@ import { RecommendationsPanel } from './components/RecommendationsPanel';
 import { TopProgressionHeader } from './components/TopProgressionHeader';
 import { EvalRunnerModal } from './components/EvalRunnerModal';
 import {
+  DEFAULT_STRATEGY_ID,
   INITIAL_HAMMERS,
   MAX_HAMMERS,
   MAX_RUN_PLACEMENTS,
@@ -37,6 +38,7 @@ import {
   CandidateMove,
   PieceConfig,
   PresetScenario,
+  SolverStrategyId,
 } from './types/forge';
 
 interface HistorySnapshot {
@@ -100,6 +102,7 @@ export const App: React.FC = () => {
   const [hoveredMoveId, setHoveredMoveId] = useState<string | null>(null);
   const [showPly2Ghost, setShowPly2Ghost] = useState<boolean>(true);
   const [blueprintMode, setBlueprintMode] = useState<boolean>(false);
+  const [strategyId, setStrategyId] = useState<SolverStrategyId>(DEFAULT_STRATEGY_ID);
   const [isEvalModalOpen, setIsEvalModalOpen] = useState<boolean>(false);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -503,7 +506,8 @@ export const App: React.FC = () => {
       nextPieceKnown,
       hammerCount,
       placementsRemaining,
-      blueprintMode
+      blueprintMode,
+      strategyId
     );
   }, [
     board,
@@ -514,6 +518,7 @@ export const App: React.FC = () => {
     hammerCount,
     placementsRemaining,
     blueprintMode,
+    strategyId,
   ]);
 
   // Evaluate Run Hammer Advisor (0..2 Hammers)
@@ -755,6 +760,8 @@ export const App: React.FC = () => {
         }}
         blueprintMode={blueprintMode}
         onToggleBlueprintMode={setBlueprintMode}
+        strategyId={strategyId}
+        onChangeStrategyId={setStrategyId}
         tenStarsAchieved={tenStarsAchieved}
         activeMove={activePreviewMove.move}
         onApplyActiveMove={handleApplyPly1Move}
@@ -984,6 +991,7 @@ export const App: React.FC = () => {
       <EvalRunnerModal
         isOpen={isEvalModalOpen}
         onClose={() => setIsEvalModalOpen(false)}
+        initialStrategyId={strategyId}
       />
     </div>
   );

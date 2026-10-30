@@ -7,10 +7,12 @@ import {
   PlacedTile,
   Ply2Continuation,
   SimulationResult,
+  SolverStrategyId,
   StarAdvice,
   StarCandidateTarget,
 } from '../types/forge';
 import {
+  DEFAULT_STRATEGY_ID,
   getMinActiveSpawnStar,
   MAX_HAMMERS,
   MAX_RUN_PLACEMENTS,
@@ -138,7 +140,8 @@ export function evaluateTransitionReward(
   _preBoard: Uint8Array,
   preMaxStar: number,
   sim: SimulationResult,
-  currentHammers: number = 1
+  currentHammers: number = 1,
+  strategyId: SolverStrategyId = DEFAULT_STRATEGY_ID
 ): {
   score: number;
   mergeScore: number;
@@ -159,18 +162,34 @@ export function evaluateTransitionReward(
       450 * Math.pow(1.7, m.fromStar - 1) * (starJump >= 2 ? 2.2 : 1)
     );
 
-    // Extra bonus when a merge creates a 10★ relic (which disappears from the board and is marked as achieved!)
+    // Strategy-specific 10★ creation rewards
     if (m.toStar === 10) {
-      // Forging 10★ Mythic clears board congestion and is the primary objective
-      mergeScore += starJump >= 2 ? 32000 : 22000;
+      if (strategyId === 'mythic-climax') {
+        mergeScore += starJump >= 2 ? 32000 : 22000;
+      } else if (strategyId === 'max-survival') {
+        mergeScore += starJump >= 2 ? 24000 : 16000;
+      } else {
+        // max-space: 10★ clears the landing cell, creating pure empty space!
+        mergeScore += starJump >= 2 ? 34000 : 25000;
+      }
+    }
+
+    // Strategy 3 (max-space): Direct reward for clearing tiles from the board
+    if (strategyId === 'max-space') {
+      mergeScore += m.mergedCells.length * 480;
+      if (starJump >= 2) {
+        mergeScore += 4200; // Super-merge mass vacancy bonus
+      }
     }
 
     // Over-merge efficiency when clearing endangered or retired low-star tiles
     if (m.fromStar <= minActiveBefore) {
       const clearedCount = m.mergedCells.length;
-      lowStarClearBonus += clearedCount * 320;
+      const baseClearVal = strategyId === 'max-space' ? 520 : 320;
+      lowStarClearBonus += clearedCount * baseClearVal;
       if (clearedCount >= 4) {
-        lowStarClearBonus += (clearedCount - 3) * 350;
+        lowStarClearBonus +=
+          (clearedCount - 3) * (strategyId === 'max-space' ? 580 : 350);
       }
     }
   }
@@ -193,15 +212,27 @@ export function evaluateTransitionReward(
       0,
       Math.min(MAX_HAMMERS, clampedCurrent + sim.hammersEarned) - clampedCurrent
     );
-    if (effectiveGained > 0) {
-      // Replenishing 0 -> 1 is life-saving (+12000); stocking up 1 -> 2 reaches maximum tactical reserve (+11000)
-      hammerEarnBonus =
-        clampedCurrent === 0
-          ? effectiveGained * 12000
-          : effectiveGained * 11000;
+    if (strategyId === 'max-survival') {
+      // Survivalist values hammers as life-saving safety shields
+      if (effectiveGained > 0) {
+        hammerEarnBonus =
+          clampedCurrent === 0
+            ? effectiveGained * 16000
+            : effectiveGained * 14000;
+      } else {
+        hammerEarnBonus = sim.hammersEarned * 2800;
+      }
     } else {
-      // Already capped at 2/2 hammers, but still reward 5+ relic super-merges (+2★ jump)
-      hammerEarnBonus = sim.hammersEarned * 1500;
+      if (effectiveGained > 0) {
+        // Replenishing 0 -> 1 is life-saving (+12000); stocking up 1 -> 2 reaches maximum tactical reserve (+11000)
+        hammerEarnBonus =
+          clampedCurrent === 0
+            ? effectiveGained * 12000
+            : effectiveGained * 11000;
+      } else {
+        hammerEarnBonus =
+          sim.hammersEarned * (strategyId === 'max-space' ? 3200 : 1500);
+      }
     }
   }
 
@@ -290,7 +321,8 @@ export function evaluateBoardState(
   initialMaxStar: number,
   hammersAvailable: number | boolean = 1,
   queueStars: number[] = [],
-  cachedInitialShapeMob?: ReturnType<typeof analyzeShapeMobility>
+  cachedInitialShapeMob?: ReturnType<typeof analyzeShapeMobility>,
+  strategyId: SolverStrategyId = DEFAULT_STRATEGY_ID
 ): {
   totalEval: number;
   deadSpacePenalty: number;
@@ -459,41 +491,92 @@ export function evaluateBoardState(
   );
 
   // 2. Empty Space Preservation, All-Shape Mobility & 3-Triangle Vulnerability Protection
-  let emptySpaceScore = emptyCells * 210;
-  if (emptyCells < 9) {
-    const deficit = 9 - emptyCells;
-    emptySpaceScore -= deficit * deficit * 120;
+  let emptySpaceScore = 0;
+  if (strategyId === 'max-space') {
+    // Maximum Space (Board Cleaner): aggressively rewards every empty cell and penalizes clutter
+    emptySpaceScore = emptyCells * 440;
+    if (emptyCells < 12) {
+      const deficit = 12 - emptyCells;
+      emptySpaceScore -= deficit * deficit * 220;
+    }
+  } else if (strategyId === 'max-survival') {
+    // Maximum Moves (Survivalist): avoids early congestion to protect survivability
+    emptySpaceScore = emptyCells * 260;
+    if (emptyCells < 10) {
+      const deficit = 10 - emptyCells;
+      emptySpaceScore -= deficit * deficit * 150;
+    }
+  } else {
+    // Mythic Climax / Balanced default
+    emptySpaceScore = emptyCells * 210;
+    if (emptyCells < 9) {
+      const deficit = 9 - emptyCells;
+      emptySpaceScore -= deficit * deficit * 120;
+    }
   }
 
   const shapeMob = analyzeShapeMobility(board);
-  const cappedMobility = Math.min(28, shapeMob.totalThreeTileSlots);
-  const excessMobility = Math.max(0, shapeMob.totalThreeTileSlots - 28);
-  const mobilityScore =
-    cappedMobility * 22 +
-    excessMobility * 4 +
-    Math.min(10, shapeMob.compact3TriangleSlots) * 35;
-
-  // Shape Vulnerability Penalty: heavily penalize board states where 3-Triangle (`compact3`),
-  // `line3`, or `bent3` has 0 or 1 valid placement!
+  let mobilityScore = 0;
   let shapeVulnerabilityPenalty = 0;
-  if (shapeMob.compact3TriangleSlots === 0) {
-    shapeVulnerabilityPenalty -= 3600;
-  } else if (shapeMob.compact3TriangleSlots === 1) {
-    shapeVulnerabilityPenalty -= 1200;
-  } else if (shapeMob.compact3TriangleSlots === 2) {
-    shapeVulnerabilityPenalty -= 450;
-  }
 
-  if (shapeMob.line3Slots === 0) {
-    shapeVulnerabilityPenalty -= 3600;
-  } else if (shapeMob.line3Slots === 1) {
-    shapeVulnerabilityPenalty -= 1100;
-  }
+  if (strategyId === 'max-survival') {
+    // Survivalist: Mobility is life! Massively penalize vulnerable shapes and reward open slots
+    const cappedMobility = Math.min(30, shapeMob.totalThreeTileSlots);
+    const excessMobility = Math.max(0, shapeMob.totalThreeTileSlots - 30);
+    mobilityScore =
+      cappedMobility * 65 +
+      excessMobility * 12 +
+      Math.min(10, shapeMob.compact3TriangleSlots) * 110;
 
-  if (shapeMob.bentAndChevronSlots === 0) {
-    shapeVulnerabilityPenalty -= 4000;
-  } else if (shapeMob.bentAndChevronSlots <= 2) {
-    shapeVulnerabilityPenalty -= 1100;
+    if (shapeMob.compact3TriangleSlots === 0) {
+      shapeVulnerabilityPenalty -= 7500;
+    } else if (shapeMob.compact3TriangleSlots === 1) {
+      shapeVulnerabilityPenalty -= 2800;
+    } else if (shapeMob.compact3TriangleSlots === 2) {
+      shapeVulnerabilityPenalty -= 900;
+    }
+
+    if (shapeMob.line3Slots === 0) {
+      shapeVulnerabilityPenalty -= 7500;
+    } else if (shapeMob.line3Slots === 1) {
+      shapeVulnerabilityPenalty -= 2400;
+    }
+
+    if (shapeMob.bentAndChevronSlots === 0) {
+      shapeVulnerabilityPenalty -= 8000;
+    } else if (shapeMob.bentAndChevronSlots <= 2) {
+      shapeVulnerabilityPenalty -= 2400;
+    }
+  } else {
+    // Standard / max-space mobility
+    const cappedMobility = Math.min(28, shapeMob.totalThreeTileSlots);
+    const excessMobility = Math.max(0, shapeMob.totalThreeTileSlots - 28);
+    mobilityScore =
+      cappedMobility * 22 +
+      excessMobility * 4 +
+      Math.min(10, shapeMob.compact3TriangleSlots) * 35;
+
+    // Shape Vulnerability Penalty: heavily penalize board states where 3-Triangle (`compact3`),
+    // `line3`, or `bent3` has 0 or 1 valid placement!
+    if (shapeMob.compact3TriangleSlots === 0) {
+      shapeVulnerabilityPenalty -= 3600;
+    } else if (shapeMob.compact3TriangleSlots === 1) {
+      shapeVulnerabilityPenalty -= 1200;
+    } else if (shapeMob.compact3TriangleSlots === 2) {
+      shapeVulnerabilityPenalty -= 450;
+    }
+
+    if (shapeMob.line3Slots === 0) {
+      shapeVulnerabilityPenalty -= 3600;
+    } else if (shapeMob.line3Slots === 1) {
+      shapeVulnerabilityPenalty -= 1100;
+    }
+
+    if (shapeMob.bentAndChevronSlots === 0) {
+      shapeVulnerabilityPenalty -= 4000;
+    } else if (shapeMob.bentAndChevronSlots <= 2) {
+      shapeVulnerabilityPenalty -= 1100;
+    }
   }
 
   // 3. Walled-In / Trapped Tile Detection, Anti-Hoarding & Anti-Fragmentation
@@ -563,17 +646,18 @@ export function evaluateBoardState(
         for (const c of comp) {
           walledInTiles.push({ cellIndex: c, star });
         }
+        const wallMult = strategyId === 'max-survival' ? 2.0 : 1.0;
         if (!hasLowerOneNeighbor) {
-          walledInPenalty -= 2400 * comp.length;
+          walledInPenalty -= Math.round(2400 * wallMult) * comp.length;
         } else {
-          walledInPenalty -= 950 * comp.length;
+          walledInPenalty -= Math.round(950 * wallMult) * comp.length;
         }
       }
     } else if (comp.length === 1 && star >= minActiveStar) {
       if (emptyNeighborCount === 1 && star < maxUnlockedStar) {
-        walledInPenalty -= 360;
+        walledInPenalty -= strategyId === 'max-survival' ? 850 : 360;
       } else if (emptyNeighborCount >= 3) {
-        organizationScore += 55;
+        organizationScore += strategyId === 'max-survival' ? 120 : 55;
       }
     }
   }
@@ -594,12 +678,17 @@ export function evaluateBoardState(
         bestIsland.emptyNeighbors >= 2
           ? Math.round(420 * Math.pow(1.2, star - 1))
           : Math.round(280 * Math.pow(1.2, star - 1));
-      if (star === 9) {
-        // Prime 10★ Climax Setup: 2 adjacent 9★ relics ready to forge 10★!
-        pairBonus += 7500;
-      } else if (star === 8) {
-        // Prime 8★ Pair primed for 9★ or 10★ super-merge
-        pairBonus += 3500;
+      if (strategyId === 'mythic-climax') {
+        if (star === 9) {
+          // Prime 10★ Climax Setup: 2 adjacent 9★ relics ready to forge 10★!
+          pairBonus += 7500;
+        } else if (star === 8) {
+          // Prime 8★ Pair primed for 9★ or 10★ super-merge
+          pairBonus += 3500;
+        }
+      } else if (strategyId === 'max-space') {
+        // Pairs enable rapid 3-tile vacuum clears
+        pairBonus += 450;
       }
       organizationScore += pairBonus;
     }
@@ -661,7 +750,10 @@ export function evaluateBoardState(
     if (compEmptyNeighborsByCell[idx] > 0) {
       for (const nb of neighborsTable[idx]) {
         if (board[nb] === star + 1) {
-          const tierMult = Math.pow(1.35, Math.max(0, star - 4));
+          const tierMult =
+            strategyId === 'mythic-climax'
+              ? Math.pow(1.35, Math.max(0, star - 4))
+              : 1.0;
           const lowerIsPair = compSizeByCell[idx] === 2;
           const upperIsPair = compSizeByCell[nb] === 2;
           if (lowerIsPair && upperIsPair) {
@@ -937,7 +1029,8 @@ export function solveBestMoves(
   nextPieceKnown: boolean,
   hammersAvailable: number | boolean = 1,
   placementsRemaining: number = MAX_RUN_PLACEMENTS,
-  blueprintMode: boolean = false
+  blueprintMode: boolean = false,
+  strategyId: SolverStrategyId = DEFAULT_STRATEGY_ID
 ): {
   candidates: CandidateMove[];
   topRecommendations: CandidateMove[];
@@ -982,7 +1075,8 @@ export function solveBestMoves(
       board,
       maxUnlockedStar,
       ply1Sim,
-      hammerCount
+      hammerCount,
+      strategyId
     );
     const hammersAfterPly1 = Math.min(
       MAX_HAMMERS,
@@ -1008,7 +1102,8 @@ export function solveBestMoves(
       maxUnlockedStar,
       hammerCount,
       queueStars,
-      initialShapeMob
+      initialShapeMob,
+      strategyId
     );
     let emptyCellsAfterPly2 = emptyCellsAfterPly1;
     let threeTileMobilityAfter = terminalEval.totalThreeTileSlots;
@@ -1038,7 +1133,8 @@ export function solveBestMoves(
             ply1Sim.nextBoard,
             ply1Sim.nextMaxStar,
             ply2Sim,
-            hammersAfterPly1
+            hammersAfterPly1,
+            strategyId
           );
           const hammersAfterPly2 = Math.min(
             MAX_HAMMERS,
@@ -1051,7 +1147,8 @@ export function solveBestMoves(
             maxUnlockedStar,
             hammersAfterPly2,
             queueStars,
-            initialShapeMob
+            initialShapeMob,
+            strategyId
           );
 
           const combinedPly2 = ply2Trans.score + boardEval.totalEval;
@@ -1408,6 +1505,16 @@ export function solveBestMoves(
       strategicTag = {
         label: `🛡️ Rescues ${terminalEval.rescuedStragglersCount}x Low-Star (${minActive0}★) Straggler`,
         tone: 'rescue',
+      };
+    } else if (strategyId === 'max-space' && ply1Sim.totalTilesCleared >= 3) {
+      strategicTag = {
+        label: `🧹 Vacuum Clear • Cleared ${ply1Sim.totalTilesCleared} Tiles (${emptyCellsAfterPly1} Free Cells)`,
+        tone: 'chain',
+      };
+    } else if (strategyId === 'max-survival' && terminalEval.totalThreeTileSlots >= 20) {
+      strategicTag = {
+        label: `🛡️ Survivalist Guard • High Mobility (${terminalEval.totalThreeTileSlots} 3-slots open)`,
+        tone: 'setup',
       };
     } else if (ply1Sim.maxChainDepth >= 2) {
       const chainStr = [

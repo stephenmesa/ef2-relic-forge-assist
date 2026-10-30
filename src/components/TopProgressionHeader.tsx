@@ -20,10 +20,12 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  DEFAULT_STRATEGY_ID,
   getMinActiveSpawnStar,
   MAX_HAMMERS,
   MAX_RUN_PLACEMENTS,
   RELIC_SPECS,
+  SOLVER_STRATEGIES,
 } from '../domain/constants';
 import { formatCellCoord } from '../domain/honeycomb';
 import { PRESET_SCENARIOS } from '../domain/presets';
@@ -31,6 +33,7 @@ import {
   CandidateMove,
   HammerAdvice,
   PresetScenario,
+  SolverStrategyId,
   StarAdvice,
   StragglerCellInfo,
 } from '../types/forge';
@@ -49,6 +52,8 @@ interface TopProgressionHeaderProps {
   onUseStar?: (cellIndex: number) => void;
   placementsMade: number;
   onChangePlacementsMade: (count: number) => void;
+  strategyId?: SolverStrategyId;
+  onChangeStrategyId?: (id: SolverStrategyId) => void;
   blueprintMode?: boolean;
   onToggleBlueprintMode?: (active: boolean) => void;
   tenStarsAchieved: number;
@@ -88,6 +93,8 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   onUseStar,
   placementsMade,
   onChangePlacementsMade,
+  strategyId = DEFAULT_STRATEGY_ID,
+  onChangeStrategyId,
   blueprintMode = false,
   onToggleBlueprintMode,
   tenStarsAchieved,
@@ -342,6 +349,28 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 / {MAX_RUN_PLACEMENTS}
               </span>
             </div>
+
+            {/* 🎯 Solver Strategy Selector */}
+            {onChangeStrategyId && (
+              <div
+                className="flex items-center gap-1.5 bg-[#0D0F17] px-2 py-1 rounded-lg border border-[#293044]"
+                title={`Active Strategy: ${SOLVER_STRATEGIES[strategyId].name}\n${SOLVER_STRATEGIES[strategyId].description}`}
+              >
+                <span className="text-xs">{SOLVER_STRATEGIES[strategyId].badge.split(' ')[0]}</span>
+                <select
+                  aria-label="Solver Strategy"
+                  value={strategyId}
+                  onChange={(e) => onChangeStrategyId(e.target.value as SolverStrategyId)}
+                  className="bg-[#161B29] text-amber-200 font-semibold text-xs rounded px-1.5 py-0.5 border border-[#2E3650] focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
+                >
+                  {Object.values(SOLVER_STRATEGIES).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* 🏛️ Endgame Blueprint Mode Toggle */}
             {onToggleBlueprintMode && (

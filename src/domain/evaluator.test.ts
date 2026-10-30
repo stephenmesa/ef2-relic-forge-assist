@@ -135,5 +135,37 @@ describe('EF2 Relic Forge Evaluation & Rating Framework', () => {
     expect(report.summary.movesPerSecond).toBeGreaterThan(0);
     expect(Object.keys(report.tierDistribution)).toHaveLength(7); // 4..10
   });
+
+  it('7. Multi-Strategy Support: Evaluates specific strategies and verifies strategy metadata', () => {
+    const mythicRes = simulateGame(0, {
+      seed: 555,
+      maxPlacements: 30,
+      strategyId: 'mythic-climax',
+    });
+    expect(mythicRes.strategyId).toBe('mythic-climax');
+
+    const survivalRes = simulateGame(0, {
+      seed: 555,
+      maxPlacements: 30,
+      strategyId: 'max-survival',
+    });
+    expect(survivalRes.strategyId).toBe('max-survival');
+
+    const spaceRes = simulateGame(0, {
+      seed: 555,
+      maxPlacements: 30,
+      strategyId: 'max-space',
+    });
+    expect(spaceRes.strategyId).toBe('max-space');
+
+    const suite = runEvaluationSuite({
+      totalGames: 2,
+      baseSeed: 777,
+      maxPlacements: 20,
+      strategyId: 'max-survival',
+    });
+    expect(suite.config.strategyId).toBe('max-survival');
+    expect(suite.games[0].strategyId).toBe('max-survival');
+  });
 });
 

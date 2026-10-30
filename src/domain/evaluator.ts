@@ -1,4 +1,5 @@
 import {
+  DEFAULT_STRATEGY_ID,
   getActiveSpawnPool,
   INITIAL_HAMMERS,
   MAX_HAMMERS,
@@ -15,6 +16,7 @@ import {
 import {
   PieceConfig,
   PieceShapeId,
+  SolverStrategyId,
 } from '../types/forge';
 
 /**
@@ -84,6 +86,7 @@ export interface SimulationOptions {
   initialHammers?: number;
   initialStarAvailable?: boolean;
   blueprintMode?: boolean;
+  strategyId?: SolverStrategyId;
   nextPieceKnown?: boolean;
   stopOnFirstTenStar?: boolean;
   hammerPolicy?: 'smart' | 'critical-only' | 'never';
@@ -93,6 +96,7 @@ export interface SimulationOptions {
 export interface GameSimulationResult {
   gameIndex: number;
   seed: number;
+  strategyId: SolverStrategyId;
   placementsMade: number;
   maxStarReached: number;
   tenStarsAchieved: number;
@@ -129,6 +133,7 @@ export function simulateGame(
   let hammers = options.initialHammers ?? INITIAL_HAMMERS;
   let starAvailable = options.initialStarAvailable ?? true;
   const blueprintMode = options.blueprintMode ?? false;
+  const strategyId = options.strategyId ?? DEFAULT_STRATEGY_ID;
   const nextPieceKnown = options.nextPieceKnown ?? true;
   const stopOnFirstTenStar = options.stopOnFirstTenStar ?? false;
   const hammerPolicy = options.hammerPolicy ?? 'smart';
@@ -161,7 +166,8 @@ export function simulateGame(
       nextPieceKnown,
       hammers,
       maxPlacements - placementsMade,
-      blueprintMode
+      blueprintMode,
+      strategyId
     );
 
     // If solver found no valid placements:
@@ -319,6 +325,7 @@ export function simulateGame(
   return {
     gameIndex,
     seed,
+    strategyId,
     placementsMade,
     maxStarReached: maxUnlockedStar,
     tenStarsAchieved,
@@ -526,6 +533,7 @@ export interface EvalSuiteReport {
     baseSeed: number;
     maxPlacements: number;
     blueprintMode: boolean;
+    strategyId: SolverStrategyId;
   };
   rating: SolverRating;
   summary: {
@@ -559,6 +567,7 @@ export interface SuiteOptions {
   baseSeed?: number;
   maxPlacements?: number;
   blueprintMode?: boolean;
+  strategyId?: SolverStrategyId;
   stopOnFirstTenStar?: boolean;
   onProgress?: (progress: EvalProgress) => void;
 }
@@ -572,6 +581,7 @@ export function runEvaluationSuite(options: SuiteOptions = {}): EvalSuiteReport 
   const baseSeed = options.baseSeed ?? 1000;
   const maxPlacements = options.maxPlacements ?? MAX_RUN_PLACEMENTS;
   const blueprintMode = options.blueprintMode ?? false;
+  const strategyId = options.strategyId ?? DEFAULT_STRATEGY_ID;
 
   const suiteStartTime = performance.now();
   const games: GameSimulationResult[] = [];
@@ -592,6 +602,7 @@ export function runEvaluationSuite(options: SuiteOptions = {}): EvalSuiteReport 
       seed,
       maxPlacements,
       blueprintMode,
+      strategyId,
       stopOnFirstTenStar: options.stopOnFirstTenStar ?? false,
     });
     games.push(result);
@@ -664,6 +675,7 @@ export function runEvaluationSuite(options: SuiteOptions = {}): EvalSuiteReport 
       baseSeed,
       maxPlacements,
       blueprintMode,
+      strategyId,
     },
     rating,
     summary: {

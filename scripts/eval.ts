@@ -1,10 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  DEFAULT_STRATEGY_ID,
+  SOLVER_STRATEGIES,
+} from '../src/domain/constants';
+import {
   compareEvaluations,
   EvalSuiteReport,
   runEvaluationSuite,
 } from '../src/domain/evaluator';
+import { SolverStrategyId } from '../src/types/forge';
 
 const BASELINE_FILE = path.resolve(process.cwd(), '.eval-baseline.json');
 
@@ -17,6 +22,8 @@ Usage:
   npm run eval [-- options]
 
 Options:
+  -s, --strategy <id>    Strategy to test ('mythic-climax' | 'max-survival' | 'max-space')
+                         Default: 'mythic-climax'
   -n, --games <number>   Number of games to simulate (default: 30)
   --quick                Quick run (15 games, ~2-3 seconds)
   --deep                 Deep evaluation (100 games, high precision)
@@ -26,10 +33,16 @@ Options:
   --compare              Compare current evaluation against the saved baseline
   --json                 Output results in pure JSON format (for CI/scripts)
   -h, --help             Show this help screen
+
+Available Strategies:
+  • mythic-climax: 👑 10★ Climax / Mythic Forge (Default)
+  • max-survival:  🛡️ Max Moves & Survivalist
+  • max-space:     🧹 Max Empty Space & Board Cleaner
 `);
 }
 
 function parseArgs(): {
+  strategy: SolverStrategyId;
   games: number;
   seed: number;
   maxMoves: number;
@@ -39,6 +52,7 @@ function parseArgs(): {
   help: boolean;
 } {
   const args = process.argv.slice(2);
+  let strategy: SolverStrategyId = DEFAULT_STRATEGY_ID;
   let games = 30;
   let seed = 1000;
   let maxMoves = 1000;
@@ -55,6 +69,13 @@ function parseArgs(): {
       games = 15;
     } else if (arg === '--deep') {
       games = 100;
+    } else if ((arg === '-s' || arg === '--strategy') && args[i + 1]) {
+      const val = args[++i] as SolverStrategyId;
+      if (val in SOLVER_STRATEGIES) {
+        strategy = val;
+      } else {
+        console.warn(`Unknown strategy '${val}', defaulting to '${DEFAULT_STRATEGY_ID}'`);
+      }
     } else if ((arg === '-n' || arg === '--games') && args[i + 1]) {
       games = parseInt(args[++i], 10) || 30;
     } else if (arg === '--seed' && args[i + 1]) {
@@ -70,7 +91,7 @@ function parseArgs(): {
     }
   }
 
-  return { games, seed, maxMoves, saveBaseline, compare, jsonOutput, help };
+  return { strategy, games, seed, maxMoves, saveBaseline, compare, jsonOutput, help };
 }
 
 function renderProgressBar(current: number, total: number, width: number = 30): string {
@@ -96,9 +117,12 @@ async function main() {
   }
 
   if (!options.jsonOutput) {
+    const stratSpec = SOLVER_STRATEGIES[options.strategy];
     console.log('\n================================================================');
     console.log('       ⬡ EF2 RELIC FORGE STRATEGY EVALUATION RUNNER ⬡');
     console.log('================================================================');
+    console.log(`Active Strategy: ${stratSpec.icon} ${stratSpec.name} (${stratSpec.badge})`);
+    console.log(`                 "${stratSpec.description}"`);
     console.log(
       `Simulating ${options.games} games | Base Seed: ${options.seed} | Max Moves: ${options.maxMoves}`
     );
@@ -111,6 +135,7 @@ async function main() {
   let lastProgressLen = 0;
 
   const report = runEvaluationSuite({
+    strategyId: options.strategy,
     totalGames: options.games,
     baseSeed: options.seed,
     maxPlacements: options.maxMoves,

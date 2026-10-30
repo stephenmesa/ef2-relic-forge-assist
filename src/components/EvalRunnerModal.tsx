@@ -21,16 +21,22 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  DEFAULT_STRATEGY_ID,
+  SOLVER_STRATEGIES,
+} from '../domain/constants';
+import {
   compareEvaluations,
   EvalComparison,
   EvalProgress,
   EvalSuiteReport,
   runEvaluationSuite,
 } from '../domain/evaluator';
+import { SolverStrategyId } from '../types/forge';
 
 interface EvalRunnerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialStrategyId?: SolverStrategyId;
 }
 
 const LOCAL_STORAGE_KEY = 'ef2_forge_eval_baseline';
@@ -38,11 +44,21 @@ const LOCAL_STORAGE_KEY = 'ef2_forge_eval_baseline';
 export const EvalRunnerModal: React.FC<EvalRunnerModalProps> = ({
   isOpen,
   onClose,
+  initialStrategyId,
 }) => {
+  const [strategyId, setStrategyId] = useState<SolverStrategyId>(
+    initialStrategyId ?? DEFAULT_STRATEGY_ID
+  );
   const [gameCount, setGameCount] = useState<number>(15);
   const [baseSeed, setBaseSeed] = useState<number>(1000);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [progress, setProgress] = useState<EvalProgress | null>(null);
+
+  useEffect(() => {
+    if (initialStrategyId && isOpen) {
+      setStrategyId(initialStrategyId);
+    }
+  }, [initialStrategyId, isOpen]);
   const [currentReport, setCurrentReport] = useState<EvalSuiteReport | null>(null);
   const [baselineReport, setBaselineReport] = useState<EvalSuiteReport | null>(null);
   const [comparison, setComparison] = useState<EvalComparison | null>(null);
@@ -79,6 +95,7 @@ export const EvalRunnerModal: React.FC<EvalRunnerModalProps> = ({
 
     try {
       const report = runEvaluationSuite({
+        strategyId,
         totalGames: gameCount,
         baseSeed,
         onProgress: (p) => {
@@ -146,6 +163,24 @@ export const EvalRunnerModal: React.FC<EvalRunnerModalProps> = ({
           {/* Controls Bar */}
           <div className="bg-[#171c2c] border border-[#283149] rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
+              {/* Strategy Selector */}
+              <div className="flex items-center gap-1.5 bg-[#0f121d] px-2.5 py-1.5 rounded-lg border border-[#283149]">
+                <span className="text-xs font-semibold text-slate-400">Strategy:</span>
+                <select
+                  aria-label="Strategy to evaluate"
+                  disabled={isRunning}
+                  value={strategyId}
+                  onChange={(e) => setStrategyId(e.target.value as SolverStrategyId)}
+                  className="bg-[#1a2032] border border-slate-700 rounded px-2 py-0.5 text-xs text-amber-300 font-semibold focus:outline-none focus:border-amber-400 cursor-pointer"
+                >
+                  {Object.values(SOLVER_STRATEGIES).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex items-center gap-1.5 bg-[#0f121d] px-2.5 py-1.5 rounded-lg border border-[#283149]">
                 <span className="text-xs font-semibold text-slate-400">Preset:</span>
                 <button
@@ -335,8 +370,11 @@ export const EvalRunnerModal: React.FC<EvalRunnerModalProps> = ({
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                      {currentReport.rating.title}
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between">
+                      <span>{currentReport.rating.title}</span>
+                      <span className="text-[10px] text-amber-300 font-semibold normal-case">
+                        {SOLVER_STRATEGIES[currentReport.config.strategyId ?? DEFAULT_STRATEGY_ID]?.badge}
+                      </span>
                     </h4>
                     <p className="text-[11px] text-slate-400 line-clamp-2">
                       {currentReport.rating.verdictSummary}

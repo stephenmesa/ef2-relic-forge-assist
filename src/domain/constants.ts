@@ -1,4 +1,4 @@
-import { PieceShapeId, PieceShapeSpec, RelicVisualSpec } from '../types/forge';
+import { PieceShapeId, PieceShapeSpec, RelicVisualSpec, SolverStrategyId, SolverStrategySpec } from '../types/forge';
 
 export const RELIC_SPECS: Record<number, RelicVisualSpec> = {
   1: {
@@ -268,3 +268,38 @@ export function getRetiredStars(maxUnlockedStar: number): number[] {
   }
   return retired;
 }
+
+export const DEFAULT_STRATEGY_ID: SolverStrategyId = 'mythic-climax';
+
+export const SOLVER_STRATEGIES: Record<SolverStrategyId, SolverStrategySpec> = {
+  'mythic-climax': {
+    id: 'mythic-climax',
+    name: '👑 Mythic Climax (10★ Forge)',
+    shortName: 'Mythic 10★',
+    badge: '👑 Mythic Forge',
+    description:
+      'Aggressively builds high-tier 8★/9★ pairs and cascade highways to forge maximum 10★ Mythic Primordial Relics.',
+    icon: '👑',
+    iconName: 'Crown',
+  },
+  'max-survival': {
+    id: 'max-survival',
+    name: '🛡️ Maximum Moves (Survivalist)',
+    shortName: 'Max Moves',
+    badge: '🛡️ Survivalist',
+    description:
+      'Prioritizes all-shape mobility and zero-trap placements to survive the highest possible number of moves without locking the board.',
+    icon: '🛡️',
+    iconName: 'Shield',
+  },
+  'max-space': {
+    id: 'max-space',
+    name: '🧹 Maximum Empty Space (Board Cleaner)',
+    shortName: 'Max Space',
+    badge: '🧹 Board Cleaner',
+    description:
+      'Aggressively triggers 5+ super-merges and mass clears to keep the maximum number of empty cells open on the board.',
+    icon: '🧹',
+    iconName: 'Sparkles',
+  },
+};

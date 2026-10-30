@@ -218,3 +218,18 @@ export interface BlueprintProgress {
   climaxReady: boolean;
   recommendedCell?: { col: number; row: number; label: string };
 }
+
+export type SolverStrategyId =
+  | 'mythic-climax' // The current balanced 10★ Climax / Mythic Forge strategy
+  | 'max-survival'  // Maximum moves / survival strategy (avoid locks, preserve mobility)
+  | 'max-space';    // Maximum empty space / board cleaner strategy (vacuum cleaning, big tile clearings)
+
+export interface SolverStrategySpec {
+  id: SolverStrategyId;
+  name: string;
+  shortName: string;
+  badge: string;
+  description: string;
+  icon: string;
+  iconName: 'Crown' | 'Shield' | 'Sparkles';
+}

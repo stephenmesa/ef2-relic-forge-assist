@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   Award,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Flame,
   Hammer,
   Hash,
@@ -78,6 +80,8 @@ interface TopProgressionHeaderProps {
   onShareState: () => void;
   onOpenEvalModal?: () => void;
   activePresetId: string | null;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
@@ -119,7 +123,33 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   onShareState,
   onOpenEvalModal,
   activePresetId,
+  isCollapsed: controlledIsCollapsed,
+  onToggleCollapse: controlledToggleCollapse,
 }) => {
+  const [localIsCollapsed, setLocalIsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ef2_header_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const isCollapsed = controlledIsCollapsed !== undefined ? controlledIsCollapsed : localIsCollapsed;
+  const toggleCollapse = () => {
+    if (controlledToggleCollapse) {
+      controlledToggleCollapse();
+    } else {
+      setLocalIsCollapsed((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('ef2_header_collapsed', String(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    }
+  };
   const minActiveStar = getMinActiveSpawnStar(maxUnlockedStar);
   const deadCount = stragglers.filter((s) => s.status === 'dead').length;
   const atRiskCount = stragglers.filter((s) => s.status === 'at-risk').length;
@@ -132,6 +162,86 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
   for (let i = 0; i < board.length; i++) {
     const s = board[i];
     if (s >= 1 && s <= 10) starBoardCounts[s]++;
+  }
+
+  // Collapsed Header View: Ultra-compact sticky mobile bar with prominent Apply Move
+  if (isCollapsed) {
+    return (
+      <header className="sticky top-0 z-40 bg-[#131620]/95 backdrop-blur border-b border-[#293044] shadow-md">
+        <div className="max-w-[1680px] mx-auto px-3 sm:px-5 py-2 flex items-center justify-between gap-2">
+          {/* Left: Compact Logo & 10★ Status */}
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 via-orange-600 to-red-700 flex items-center justify-center shadow-[0_0_8px_rgba(245,158,11,0.4)] border border-amber-300/40">
+              <Flame className="w-4 h-4 text-amber-100" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-xs sm:text-sm font-extrabold tracking-tight text-amber-200">
+                EF2 Advisor
+              </h1>
+              {isTenStarAchieved && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                  👑 10★
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Apply Move Button & Expand Button */}
+          <div className="flex items-center gap-2">
+            {/* 1-Tap Emergency Hammer on Mobile if urgently recommended */}
+            {hammerAvailable &&
+              hammerAdvice?.shouldUseNow &&
+              hammerAdvice.recommendedTarget &&
+              onUseHammer && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUseHammer(hammerAdvice.recommendedTarget!.cellIndex)
+                  }
+                  className="px-2 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow"
+                  title={hammerAdvice.headline}
+                >
+                  <Hammer className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Smash</span>
+                </button>
+              )}
+
+            {/* Apply Move Button (High Priority!) */}
+            {activeMove && placementsMade < MAX_RUN_PLACEMENTS ? (
+              <button
+                type="button"
+                onClick={() => onApplyActiveMove(activeMove)}
+                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 active:scale-[0.98] text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.35)] border border-amber-300 transition-all"
+                title="Apply the currently selected / #1 Best Move and advance piece"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Apply Move</span>
+                <span className="font-mono text-[11px] bg-black/15 px-1.5 py-0.2 rounded">
+                  {activeMove.placedTiles
+                    .map((pt) => formatCellCoord(pt.col, pt.row))
+                    .join('·')}
+                </span>
+              </button>
+            ) : (
+              <span className="text-xs text-slate-400 font-mono">
+                {placementsMade}/{MAX_RUN_PLACEMENTS} moves
+              </span>
+            )}
+
+            {/* Expand Header Button */}
+            <button
+              type="button"
+              onClick={toggleCollapse}
+              className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white bg-[#0D0F17] hover:bg-slate-800 border border-[#293044] transition-all flex items-center gap-1 text-xs font-semibold"
+              title="Expand full header controls and relic progression bar"
+            >
+              <span className="text-[11px] hidden sm:inline">Expand</span>
+              <ChevronDown className="w-4 h-4 text-amber-400" />
+            </button>
+          </div>
+        </div>
+      </header>
+    );
   }
 
   return (
@@ -271,6 +381,17 @@ export const TopProgressionHeader: React.FC<TopProgressionHeaderProps> = ({
                 <span>Advanced View</span>
               </button>
             </div>
+
+            {/* Collapse Header Button (Compact Mode for Mobile) */}
+            <button
+              type="button"
+              onClick={toggleCollapse}
+              className="px-2 py-1 rounded-md text-xs font-bold text-slate-300 hover:text-white bg-[#0D0F17] hover:bg-slate-800 border border-[#293044] transition-all flex items-center gap-1 shadow-sm"
+              title="Collapse header into a compact bar (recommended for mobile)"
+            >
+              <ChevronUp className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Collapse</span>
+            </button>
 
             {/* Hammer Count Status Button (0..2, +1 on 5+ relic merge) */}
             <button

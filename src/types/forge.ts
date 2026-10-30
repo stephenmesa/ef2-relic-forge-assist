@@ -209,13 +209,17 @@ export interface PresetScenario {
 }
 
 export interface BlueprintProgress {
-  activePhase: 1 | 2 | 3 | 4;
+  activePhase: 1 | 2 | 3 | 4 | 5;
   phaseTitle: string;
   phaseGoal: string;
   colACompleted: boolean;
   colECompleted: boolean;
   flanksCompleted: boolean;
   climaxReady: boolean;
+  hasA3Anchor: boolean;
+  hasE3Anchor: boolean;
+  hasB2Anchor: boolean;
+  hasD2Anchor: boolean;
   recommendedCell?: { col: number; row: number; label: string };
 }
 

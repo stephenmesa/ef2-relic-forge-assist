@@ -530,7 +530,8 @@ export const App: React.FC = () => {
       nextPiece,
       nextPieceKnown,
       solverResult,
-      hammerCount
+      hammerCount,
+      blueprintMode
     );
   }, [
     board,
@@ -540,6 +541,7 @@ export const App: React.FC = () => {
     nextPieceKnown,
     solverResult,
     hammerCount,
+    blueprintMode,
   ]);
 
   // Evaluate 1× Run Star Advisor (Raises 1★..8★ relic by +1 grade)

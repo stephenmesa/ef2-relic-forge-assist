@@ -29,6 +29,7 @@ Options:
   --deep                 Deep evaluation (100 games, high precision)
   --seed <number>        Starting seed for reproducible runs (default: 1000)
   --max-moves <number>   Maximum placements per game (default: 1000)
+  --blueprint            Enable Master 5-Phase Endgame Blueprint strategy mode
   --save-baseline        Save this evaluation as the official baseline (.eval-baseline.json)
   --compare              Compare current evaluation against the saved baseline
   --json                 Output results in pure JSON format (for CI/scripts)
@@ -46,6 +47,7 @@ function parseArgs(): {
   games: number;
   seed: number;
   maxMoves: number;
+  blueprint: boolean;
   saveBaseline: boolean;
   compare: boolean;
   jsonOutput: boolean;
@@ -56,6 +58,7 @@ function parseArgs(): {
   let games = 30;
   let seed = 1000;
   let maxMoves = 1000;
+  let blueprint = false;
   let saveBaseline = false;
   let compare = false;
   let jsonOutput = false;
@@ -82,6 +85,8 @@ function parseArgs(): {
       seed = parseInt(args[++i], 10) || 1000;
     } else if (arg === '--max-moves' && args[i + 1]) {
       maxMoves = parseInt(args[++i], 10) || 1000;
+    } else if (arg === '--blueprint') {
+      blueprint = true;
     } else if (arg === '--save-baseline') {
       saveBaseline = true;
     } else if (arg === '--compare') {
@@ -91,7 +96,7 @@ function parseArgs(): {
     }
   }
 
-  return { strategy, games, seed, maxMoves, saveBaseline, compare, jsonOutput, help };
+  return { strategy, games, seed, maxMoves, blueprint, saveBaseline, compare, jsonOutput, help };
 }
 
 function renderProgressBar(current: number, total: number, width: number = 30): string {
@@ -136,6 +141,7 @@ async function main() {
 
   const report = runEvaluationSuite({
     strategyId: options.strategy,
+    blueprintMode: options.blueprint,
     totalGames: options.games,
     baseSeed: options.seed,
     maxPlacements: options.maxMoves,

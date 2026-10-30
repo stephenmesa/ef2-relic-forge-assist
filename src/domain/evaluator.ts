@@ -183,7 +183,8 @@ export function simulateGame(
           nextPiece,
           nextPieceKnown,
           solverResult,
-          hammers
+          hammers,
+          blueprintMode
         );
         if (hammerAdvice.recommendedTarget) {
           board[hammerAdvice.recommendedTarget.cellIndex] = 0;
@@ -254,7 +255,8 @@ export function simulateGame(
           nextPiece,
           nextPieceKnown,
           solverResult,
-          hammers
+          hammers,
+          blueprintMode
         );
         if (
           hammerAdvice.shouldUseNow &&

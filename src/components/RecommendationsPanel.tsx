@@ -447,7 +447,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                   Endgame Blueprint Mode
                 </span>
                 <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
-                  Phase {blueprintProgress?.activePhase ?? 1} of 4
+                  Phase {blueprintProgress?.activePhase ?? 1} of 5
                 </span>
               </div>
             </div>
@@ -460,6 +460,68 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
                 Disable
               </button>
             )}
+          </div>
+
+          {/* 5-Phase Checklist Pills */}
+          <div className="grid grid-cols-5 gap-1 pt-1 text-[10px] font-bold text-center">
+            <span
+              className={`py-1 rounded border ${
+                blueprintProgress?.hasA3Anchor
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : blueprintProgress?.activePhase === 1
+                  ? 'bg-amber-500/25 text-amber-300 border-amber-400 animate-pulse'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+              }`}
+              title="Phase 1: Left Outer Anchor (A3 8★)"
+            >
+              1: A3 8★
+            </span>
+            <span
+              className={`py-1 rounded border ${
+                blueprintProgress?.hasE3Anchor
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : blueprintProgress?.activePhase === 2
+                  ? 'bg-amber-500/25 text-amber-300 border-amber-400 animate-pulse'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+              }`}
+              title="Phase 2: Right Outer Anchor (E3 8★)"
+            >
+              2: E3 8★
+            </span>
+            <span
+              className={`py-1 rounded border ${
+                blueprintProgress?.hasB2Anchor
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : blueprintProgress?.activePhase === 3
+                  ? 'bg-amber-500/25 text-amber-300 border-amber-400 animate-pulse'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+              }`}
+              title="Phase 3: Left Inward Flank Anchor (B2 8★)"
+            >
+              3: B2 8★
+            </span>
+            <span
+              className={`py-1 rounded border ${
+                blueprintProgress?.hasD2Anchor
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : blueprintProgress?.activePhase === 4
+                  ? 'bg-amber-500/25 text-amber-300 border-amber-400 animate-pulse'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+              }`}
+              title="Phase 4: Right Inward Flank Anchor (D2 8★)"
+            >
+              4: D2 8★
+            </span>
+            <span
+              className={`py-1 rounded border ${
+                blueprintProgress?.climaxReady
+                  ? 'bg-amber-500/30 text-amber-200 border-amber-400 animate-pulse font-black'
+                  : 'bg-slate-900/60 text-slate-500 border-slate-800'
+              }`}
+              title="Phase 5: Grand Climax (C3 10★ Cascade)"
+            >
+              5: C3 10★
+            </span>
           </div>
           <div className="text-xs text-slate-100 font-bold">
             {blueprintProgress?.phaseTitle}

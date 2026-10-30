@@ -919,100 +919,153 @@ function buildRotationInstruction(
 
 /**
  * Analyzes the current board to determine which phase of the Master Endgame Blueprint
- * (Column A 5-Stack -> Column E 5-Stack -> Flank Anchors -> Center 10★ Climax) is active.
+ * (Column A 5-Stack -> Column E 5-Stack -> Left Inward Flank B2 -> Right Inward Flank D2 -> Center 10★ Climax C3)
+ * is active, following FaustLate's authentic 5-phase placement pattern.
  */
 export function analyzeBlueprintProgress(board: Uint8Array): BlueprintProgress {
-  // Col A anchor is A3 (col 0, row 2) -> index 2
+  // 1. Col A anchor is A3 (col 0, row 2) -> index 2
   const a3Star = board[0 * 5 + 2];
   const hasA3Anchor = a3Star >= 8;
-  // Col E anchor is E3 (col 4, row 2) -> index 22
+
+  // 2. Col E anchor is E3 (col 4, row 2) -> index 22
   const e3Star = board[4 * 5 + 2];
   const hasE3Anchor = e3Star >= 8;
 
-  // Flank checks: B2/B3/B4 (col 1) and D2/D3/D4 (col 3)
-  const flankIndices = [
-    1 * 5 + 1, // B2
-    1 * 5 + 2, // B3
-    1 * 5 + 3, // B4
-    3 * 5 + 1, // D2
-    3 * 5 + 2, // D3
-    3 * 5 + 3, // D4
-  ];
-  const flankCount8 = flankIndices.filter((idx) => board[idx] >= 8).length;
+  // 3. Left Flank Inward Anchor: B2 (col 1, row 1 -> index 6) or B3 (col 1, row 2 -> index 7)
+  const b2Star = board[1 * 5 + 1];
+  const b3Star = board[1 * 5 + 2];
+  const hasB2Anchor = b2Star >= 8 || b3Star >= 8;
 
-  // Climax ready: 4+ 8★ relics surrounding C3 (col 2, row 2) or C4 (col 2, row 3)
-  const climaxSurroundIndices = [
-    1 * 5 + 2, // B3
-    1 * 5 + 3, // B4
-    2 * 5 + 4, // C5
-    3 * 5 + 2, // D3
-    3 * 5 + 3, // D4
-  ];
-  const surroundCount8 = climaxSurroundIndices.filter((idx) => board[idx] >= 8).length;
-  const climaxReady = surroundCount8 >= 4;
-  const flanksCompleted = hasA3Anchor && hasE3Anchor && (flankCount8 >= 2 || surroundCount8 >= 3);
+  // 4. Right Flank Inward Anchor: D2 (col 3, row 1 -> index 16) or D3 (col 3, row 2 -> index 17)
+  const d2Star = board[3 * 5 + 1];
+  const d3Star = board[3 * 5 + 2];
+  const hasD2Anchor = d2Star >= 8 || d3Star >= 8;
+
+  const flanksCompleted = hasB2Anchor && hasD2Anchor;
+  const climaxReady = hasA3Anchor && hasE3Anchor && hasB2Anchor && hasD2Anchor;
 
   if (!hasA3Anchor) {
-    // Phase 1: Left Column A
-    let nextTarget = { col: 0, row: 0, label: 'A1 (Top Outer Corner)' };
-    if (board[0 * 5 + 0] !== 0) {
-      if (board[0 * 5 + 4] === 0) nextTarget = { col: 0, row: 4, label: 'A5 (Bottom Outer Corner)' };
-      else if (board[0 * 5 + 1] === 0) nextTarget = { col: 0, row: 1, label: 'A2 (Inner Top)' };
-      else if (board[0 * 5 + 3] === 0) nextTarget = { col: 0, row: 3, label: 'A4 (Inner Bottom)' };
+    // Phase 1: Left Perimeter Column A 5-Stack into A3
+    let nextTarget = { col: 0, row: 0, label: 'A1 (Top Outer)' };
+    if (board[0 * 5 + 0] >= 6) {
+      if (board[0 * 5 + 4] < 6) nextTarget = { col: 0, row: 4, label: 'A5 (Bottom Outer)' };
+      else if (board[0 * 5 + 1] < 6) nextTarget = { col: 0, row: 1, label: 'A2 (Top Inner)' };
+      else if (board[0 * 5 + 3] < 6) nextTarget = { col: 0, row: 3, label: 'A4 (Bottom Inner)' };
       else nextTarget = { col: 0, row: 2, label: 'A3 (CENTER ANCHOR - Merge 5× 6★ → 8★)' };
     }
     return {
       activePhase: 1,
       phaseTitle: 'Phase 1: Left Perimeter Column A 5-Stack',
-      phaseGoal: 'Stage 5× 6★ relics in Col A (A1 → A5 → A2 → A4 → Anchor A3). Merging at A3 spawns an 8★ anchor and earns +1 Hammer!',
+      phaseGoal:
+        'Leave Col A free until 6★ relics spawn. Place four 6★ relics at A1, A5, A2, A4 leaving center A3 open. Then drop the 5th 6★ at A3 to 5-super-merge into an 8★ anchor (+1 Hammer)!',
       colACompleted: false,
       colECompleted: hasE3Anchor,
       flanksCompleted: false,
       climaxReady: false,
+      hasA3Anchor,
+      hasE3Anchor,
+      hasB2Anchor,
+      hasD2Anchor,
       recommendedCell: nextTarget,
     };
   } else if (!hasE3Anchor) {
-    // Phase 2: Right Column E
-    let nextTarget = { col: 4, row: 0, label: 'E1 (Top Outer Corner)' };
-    if (board[4 * 5 + 0] !== 0) {
-      if (board[4 * 5 + 4] === 0) nextTarget = { col: 4, row: 4, label: 'E5 (Bottom Outer Corner)' };
-      else if (board[4 * 5 + 1] === 0) nextTarget = { col: 4, row: 1, label: 'E2 (Inner Top)' };
-      else if (board[4 * 5 + 3] === 0) nextTarget = { col: 4, row: 3, label: 'E4 (Inner Bottom)' };
+    // Phase 2: Right Perimeter Column E 5-Stack into E3
+    let nextTarget = { col: 4, row: 0, label: 'E1 (Top Outer)' };
+    if (board[4 * 5 + 0] >= 6) {
+      if (board[4 * 5 + 4] < 6) nextTarget = { col: 4, row: 4, label: 'E5 (Bottom Outer)' };
+      else if (board[4 * 5 + 1] < 6) nextTarget = { col: 4, row: 1, label: 'E2 (Top Inner)' };
+      else if (board[4 * 5 + 3] < 6) nextTarget = { col: 4, row: 3, label: 'E4 (Bottom Inner)' };
       else nextTarget = { col: 4, row: 2, label: 'E3 (CENTER ANCHOR - Merge 5× 6★ → 8★)' };
     }
     return {
       activePhase: 2,
       phaseTitle: 'Phase 2: Right Perimeter Column E 5-Stack',
-      phaseGoal: 'Stage 5× 6★ relics in Col E (E1 → E5 → E2 → E4 → Anchor E3). Merging at E3 spawns your 2nd 8★ anchor and earns +1 Hammer!',
+      phaseGoal:
+        'Leave Col E free until 6★ relics spawn. Place four 6★ relics at E1, E5, E2, E4 leaving center E3 open. Then drop the 5th 6★ at E3 to 5-super-merge into your 2nd 8★ anchor (+1 Hammer)!',
       colACompleted: true,
       colECompleted: false,
       flanksCompleted: false,
       climaxReady: false,
+      hasA3Anchor,
+      hasE3Anchor,
+      hasB2Anchor,
+      hasD2Anchor,
       recommendedCell: nextTarget,
     };
-  } else if (!climaxReady) {
-    // Phase 3: Flank Anchors in Cols B & D
+  } else if (!hasB2Anchor) {
+    // Phase 3: Left Inward Flank 5-Super-Merge into B2
+    // Staging arc wrapping around A3: A1, A2, A4, B3, B2
+    let nextTarget = { col: 0, row: 0, label: 'A1 (Col A Arc)' };
+    if (board[0 * 5 + 0] >= 6) {
+      if (board[0 * 5 + 1] < 6) nextTarget = { col: 0, row: 1, label: 'A2 (Col A Arc)' };
+      else if (board[0 * 5 + 3] < 6) nextTarget = { col: 0, row: 3, label: 'A4 (Col A Arc)' };
+      else if (board[1 * 5 + 2] < 6) nextTarget = { col: 1, row: 2, label: 'B3 (Lower Flank)' };
+      else nextTarget = { col: 1, row: 1, label: 'B2 (INWARD ANCHOR - Merge 5× 6★ → 8★ at B2)' };
+    }
     return {
       activePhase: 3,
-      phaseTitle: 'Phase 3: Flank Anchors (Cols B & D)',
-      phaseGoal: 'Both outer anchors (A3 & E3) are locked! Build 8★ relics at B3/B4 and D3/D4 and stage C5 to prepare the 5-relic surround.',
+      phaseTitle: 'Phase 3: Left Flank Inward Merge (Col A & B → B2)',
+      phaseGoal:
+        'With 8★ holding A3, stage four 6★ relics around it in Col A & B (A1, A2, A4, B3). Place the 5th 6★ at B2 to inward 5-super-merge into an 8★ at B2 (+1 Hammer), locking the Left 8★ Pair (A3 + B2)!',
       colACompleted: true,
       colECompleted: true,
-      flanksCompleted: true,
+      flanksCompleted: false,
       climaxReady: false,
-      recommendedCell: { col: 2, row: 4, label: 'C5 / Flanks B, D' },
+      hasA3Anchor,
+      hasE3Anchor,
+      hasB2Anchor,
+      hasD2Anchor,
+      recommendedCell: nextTarget,
     };
-  } else {
-    // Phase 4: Grand Climax
+  } else if (!hasD2Anchor) {
+    // Phase 4: Right Inward Flank 5-Super-Merge into D2
+    // Staging arc wrapping around E3: E1, E2, E4, D3, D2
+    let nextTarget = { col: 4, row: 0, label: 'E1 (Col E Arc)' };
+    if (board[4 * 5 + 0] >= 6) {
+      if (board[4 * 5 + 1] < 6) nextTarget = { col: 4, row: 1, label: 'E2 (Col E Arc)' };
+      else if (board[4 * 5 + 3] < 6) nextTarget = { col: 4, row: 3, label: 'E4 (Col E Arc)' };
+      else if (board[3 * 5 + 2] < 6) nextTarget = { col: 3, row: 2, label: 'D3 (Lower Flank)' };
+      else nextTarget = { col: 3, row: 1, label: 'D2 (INWARD ANCHOR - Merge 5× 6★ → 8★ at D2)' };
+    }
     return {
       activePhase: 4,
-      phaseTitle: 'Phase 4: Grand Climax (5× 8★ Super-Merge into 10★ Mythic)',
-      phaseGoal: 'Drop the final 8★ relic into C3! Unites 5× 8★ relics into a +2★ super-merge directly creating the 10★ Mythic Relic!',
+      phaseTitle: 'Phase 4: Right Flank Inward Merge (Col E & D → D2)',
+      phaseGoal:
+        'With 8★ holding E3, stage four 6★ relics around it in Col E & D (E1, E2, E4, D3). Place the 5th 6★ at D2 to inward 5-super-merge into an 8★ at D2 (+1 Hammer), locking the Right 8★ Pair (E3 + D2)!',
+      colACompleted: true,
+      colECompleted: true,
+      flanksCompleted: false,
+      climaxReady: false,
+      hasA3Anchor,
+      hasE3Anchor,
+      hasB2Anchor,
+      hasD2Anchor,
+      recommendedCell: nextTarget,
+    };
+  } else {
+    // Phase 5: Grand Climax Cascade at C3
+    // Stage Col C: C1, C2, C4, C5 leaving C3 open
+    let nextTarget = { col: 2, row: 0, label: 'C1 (Center Top)' };
+    if (board[2 * 5 + 0] >= 6) {
+      if (board[2 * 5 + 1] < 6) nextTarget = { col: 2, row: 1, label: 'C2 (Center Upper)' };
+      else if (board[2 * 5 + 3] < 6) nextTarget = { col: 2, row: 3, label: 'C4 (Center Lower)' };
+      else if (board[2 * 5 + 4] < 6) nextTarget = { col: 2, row: 4, label: 'C5 (Center Bottom)' };
+      else nextTarget = { col: 2, row: 2, label: 'C3 (GRAND CLIMAX DROP - Cascade into 10★ Mythic!)' };
+    }
+    return {
+      activePhase: 5,
+      phaseTitle: 'Phase 5: Grand Climax (Double Cascade into 10★ Mythic)',
+      phaseGoal:
+        'Both 8★ pairs are locked (A3-B2 and D2-E3)! Stage four 6★ relics at C1, C2, C4, C5 leaving C3 open. Drop the final 6★ at C3 to trigger the 6★ 5-super-merge into 8★ at C3, which cascades into the chained 5× 8★ Mythic Super-Merge!',
       colACompleted: true,
       colECompleted: true,
       flanksCompleted: true,
       climaxReady: true,
-      recommendedCell: { col: 2, row: 2, label: 'C3 (THE WINNING DROP)' },
+      hasA3Anchor,
+      hasE3Anchor,
+      hasB2Anchor,
+      hasD2Anchor,
+      recommendedCell: nextTarget,
     };
   }
 }
@@ -1208,20 +1261,37 @@ export function solveBestMoves(
     let blueprintMoveDesc: string | null = null;
 
     if (blueprintMode) {
+      // 1. Column A & E Rim Preservation Rule (Visual Guide Rule: Leave A and E free for 6★ only)
+      // Once 6★ relics are unlocked in the spawn pool, strictly preserve A and E for 6★ only!
+      if (maxUnlockedStar >= 6) {
+        for (const pt of p1.placedTiles) {
+          if ((pt.col === 0 || pt.col === 4) && pt.star < 6) {
+            blueprintPriorityBonus -= 50000;
+          }
+        }
+      } else {
+        // Before 6★: softly prefer building in the central columns (B, C, D) so A & E stay relatively clear
+        for (const pt of p1.placedTiles) {
+          if (pt.col === 0 || pt.col === 4) {
+            blueprintPriorityBonus -= 2500;
+          }
+        }
+      }
+
       if (bpProgress.activePhase === 1) {
-        // Phase 1: Column A focus (col 0)
+        // Phase 1: Column A focus (col 0) -> Target 8★ at A3
         const colATiles = p1.placedTiles.filter((pt) => pt.col === 0);
         if (colATiles.length > 0) {
           for (const pt of colATiles) {
-            if (pt.star >= 5) {
+            if (pt.star >= 6) {
               if (pt.row === 0 || pt.row === 4) {
-                blueprintPriorityBonus += 25000;
+                blueprintPriorityBonus += 26000;
                 blueprintMoveDesc = `Drop ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Outer Corner)`;
               } else if (pt.row === 1 || pt.row === 3) {
-                blueprintPriorityBonus += 22000;
+                blueprintPriorityBonus += 23000;
                 blueprintMoveDesc = `Drop ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Inner Perimeter)`;
               } else if (pt.row === 2) {
-                // Anchor cell A3
+                // Center anchor cell A3
                 const triggers5Merge = ply1Sim.merges.some(
                   (m) =>
                     m.mergedCells.length >= 5 &&
@@ -1229,33 +1299,30 @@ export function solveBestMoves(
                     indexToCoord(m.landingCell).row === 2
                 );
                 if (triggers5Merge) {
-                  blueprintPriorityBonus += 75000;
+                  blueprintPriorityBonus += 85000;
                   blueprintMoveDesc = `Anchor Drop ${pt.star}★ at A3 → 5-Super-Merge into 8★ (+1 Hammer)!`;
                 } else {
                   // Premature anchor placement before other cells are staged
                   blueprintPriorityBonus -= 45000;
                 }
               }
-            } else {
-              // Contamination of Col A with low-star relic (< 5★)
-              blueprintPriorityBonus -= 35000;
             }
           }
         }
       } else if (bpProgress.activePhase === 2) {
-        // Phase 2: Column E focus (col 4)
+        // Phase 2: Column E focus (col 4) -> Target 8★ at E3
         const colETiles = p1.placedTiles.filter((pt) => pt.col === 4);
         if (colETiles.length > 0) {
           for (const pt of colETiles) {
-            if (pt.star >= 5) {
+            if (pt.star >= 6) {
               if (pt.row === 0 || pt.row === 4) {
-                blueprintPriorityBonus += 25000;
+                blueprintPriorityBonus += 26000;
                 blueprintMoveDesc = `Drop ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Outer Corner)`;
               } else if (pt.row === 1 || pt.row === 3) {
-                blueprintPriorityBonus += 22000;
+                blueprintPriorityBonus += 23000;
                 blueprintMoveDesc = `Drop ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Inner Perimeter)`;
               } else if (pt.row === 2) {
-                // Anchor cell E3
+                // Center anchor cell E3
                 const triggers5Merge = ply1Sim.merges.some(
                   (m) =>
                     m.mergedCells.length >= 5 &&
@@ -1263,33 +1330,73 @@ export function solveBestMoves(
                     indexToCoord(m.landingCell).row === 2
                 );
                 if (triggers5Merge) {
-                  blueprintPriorityBonus += 75000;
+                  blueprintPriorityBonus += 85000;
                   blueprintMoveDesc = `Anchor Drop ${pt.star}★ at E3 → 5-Super-Merge into 8★ (+1 Hammer)!`;
                 } else {
                   blueprintPriorityBonus -= 45000;
                 }
               }
-            } else {
-              blueprintPriorityBonus -= 35000;
             }
           }
         }
       } else if (bpProgress.activePhase === 3) {
-        // Phase 3: Flanks B & D, C5
+        // Phase 3: Left Inward Flank 5-Super-Merge into B2
+        // Arc wrapping around A3: A1, A2, A4 in Col A, and B3 in Col B, landing at B2
         for (const pt of p1.placedTiles) {
-          if (pt.star >= 7) {
-            if (
-              (pt.col === 1 && (pt.row === 2 || pt.row === 3)) ||
-              (pt.col === 3 && (pt.row === 2 || pt.row === 3)) ||
-              (pt.col === 2 && pt.row === 4)
-            ) {
-              blueprintPriorityBonus += 28000;
-              blueprintMoveDesc = `Stage ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} for Center Surround`;
+          if (pt.star >= 6) {
+            if (pt.col === 0 && (pt.row === 0 || pt.row === 1 || pt.row === 3 || pt.row === 4)) {
+              blueprintPriorityBonus += 24000;
+              blueprintMoveDesc = `Stage ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Left Flank Arc)`;
+            } else if (pt.col === 1 && pt.row === 2) {
+              blueprintPriorityBonus += 26000;
+              blueprintMoveDesc = `Stage ${pt.star}★ at B3 (Left Flank Arc)`;
+            } else if (pt.col === 1 && pt.row === 1) {
+              // B2 inward anchor
+              const triggersB2Merge = ply1Sim.merges.some(
+                (m) =>
+                  m.mergedCells.length >= 5 &&
+                  indexToCoord(m.landingCell).col === 1 &&
+                  (indexToCoord(m.landingCell).row === 1 || indexToCoord(m.landingCell).row === 2)
+              );
+              if (triggersB2Merge) {
+                blueprintPriorityBonus += 95000;
+                blueprintMoveDesc = `Inward Anchor Drop at B2 → 5-Super-Merge into 8★ (Left Pair Lock)!`;
+              } else {
+                blueprintPriorityBonus -= 35000;
+              }
             }
           }
         }
       } else if (bpProgress.activePhase === 4) {
-        // Phase 4: Center Climax at C3
+        // Phase 4: Right Inward Flank 5-Super-Merge into D2
+        // Arc wrapping around E3: E1, E2, E4 in Col E, and D3 in Col D, landing at D2
+        for (const pt of p1.placedTiles) {
+          if (pt.star >= 6) {
+            if (pt.col === 4 && (pt.row === 0 || pt.row === 1 || pt.row === 3 || pt.row === 4)) {
+              blueprintPriorityBonus += 24000;
+              blueprintMoveDesc = `Stage ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} (Right Flank Arc)`;
+            } else if (pt.col === 3 && pt.row === 2) {
+              blueprintPriorityBonus += 26000;
+              blueprintMoveDesc = `Stage ${pt.star}★ at D3 (Right Flank Arc)`;
+            } else if (pt.col === 3 && pt.row === 1) {
+              // D2 inward anchor
+              const triggersD2Merge = ply1Sim.merges.some(
+                (m) =>
+                  m.mergedCells.length >= 5 &&
+                  indexToCoord(m.landingCell).col === 3 &&
+                  (indexToCoord(m.landingCell).row === 1 || indexToCoord(m.landingCell).row === 2)
+              );
+              if (triggersD2Merge) {
+                blueprintPriorityBonus += 95000;
+                blueprintMoveDesc = `Inward Anchor Drop at D2 → 5-Super-Merge into 8★ (Right Pair Lock)!`;
+              } else {
+                blueprintPriorityBonus -= 35000;
+              }
+            }
+          }
+        }
+      } else if (bpProgress.activePhase === 5) {
+        // Phase 5: Center Climax Double Cascade at C3
         const has10StarClimax = ply1Sim.merges.some(
           (m) =>
             m.toStar === 10 &&
@@ -1297,14 +1404,29 @@ export function solveBestMoves(
             indexToCoord(m.landingCell).col === 2 &&
             indexToCoord(m.landingCell).row === 2
         );
-        if (has10StarClimax) {
-          blueprintPriorityBonus += 120000;
-          blueprintMoveDesc = `CLIMAX DROP at C3 → 5-Super-Merge into 10★ Mythic Relic!`;
+        const hasAny10Star = ply1Sim.merges.some((m) => m.toStar === 10);
+
+        if (has10StarClimax || hasAny10Star) {
+          blueprintPriorityBonus += 150000;
+          blueprintMoveDesc = `GRAND CLIMAX at C3 → Chained 5-Super-Merge into 10★ Mythic Primordial Relic!`;
         } else {
           for (const pt of p1.placedTiles) {
-            if (pt.col === 2 && pt.row === 2 && pt.star >= 8) {
-              blueprintPriorityBonus += 85000;
-              blueprintMoveDesc = `Drop 8★ at C3 (Climax Anchor)`;
+            if (pt.col === 2) {
+              if (pt.row === 2 && pt.star >= 6) {
+                const triggersC3Merge = ply1Sim.merges.some(
+                  (m) =>
+                    m.mergedCells.length >= 5 &&
+                    indexToCoord(m.landingCell).col === 2 &&
+                    indexToCoord(m.landingCell).row === 2
+                );
+                if (triggersC3Merge) {
+                  blueprintPriorityBonus += 120000;
+                  blueprintMoveDesc = `Center Anchor Drop at C3 → 5-Super-Merge & Climax Cascade!`;
+                }
+              } else if (pt.star >= 6 && (pt.row === 0 || pt.row === 1 || pt.row === 3 || pt.row === 4)) {
+                blueprintPriorityBonus += 32000;
+                blueprintMoveDesc = `Stage ${pt.star}★ at ${formatCellCoord(pt.col, pt.row)} in Center Column`;
+              }
             }
           }
         }
@@ -1751,7 +1873,8 @@ export function evaluateHammerAdvice(
     topRecommendations: CandidateMove[];
     lethalMoves: CandidateMove[];
   },
-  hammersAvailable: number | boolean = 1
+  hammersAvailable: number | boolean = 1,
+  blueprintMode: boolean = false
 ): HammerAdvice {
   const hammerCount = normalizeHammerCount(hammersAvailable);
   const validIndices = getValidCellIndices();
@@ -1831,8 +1954,10 @@ export function evaluateHammerAdvice(
 
     // Priority heuristic: Dead retired tiles first, then At-Risk, then low-star central blockers;
     // strongly avoid destroying high-tier relics (star >= maxUnlockedStar)
+    const isPerimeterContamination = blueprintMode && (col === 0 || col === 4) && star < 6;
     const priorityScore =
       (isDeadRetired ? 10000 : isAtRisk ? 4500 : 0) +
+      (isPerimeterContamination ? 16000 : 0) +
       (isCentralCol ? 600 : 0) +
       adjacentOccupied * 180 +
       adjacentDifferentPairs * 900 -

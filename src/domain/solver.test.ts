@@ -745,5 +745,35 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     const placesInColE = topP2Move.placedTiles.some((pt) => pt.col === 4 && pt.star === 6);
     expect(placesInColE).toBe(true);
     expect(topP2Move.strategicTag?.label).toContain('[Blueprint P2]');
+
+    // 4. When A3 and E3 both have 8★, advances to Phase 3 (Left Flank B2)
+    board[cellToIndex(4, 2)] = 8; // E3 anchor achieved!
+    const bpPhase3Res = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
+    expect(bpPhase3Res.blueprintProgress.activePhase).toBe(3);
+    expect(bpPhase3Res.blueprintProgress.hasA3Anchor).toBe(true);
+    expect(bpPhase3Res.blueprintProgress.hasE3Anchor).toBe(true);
+    expect(bpPhase3Res.blueprintProgress.hasB2Anchor).toBe(false);
+
+    // 5. When A3, E3, and B2 have 8★, advances to Phase 4 (Right Flank D2)
+    board[cellToIndex(1, 1)] = 8; // B2 anchor achieved!
+    const bpPhase4Res = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
+    expect(bpPhase4Res.blueprintProgress.activePhase).toBe(4);
+    expect(bpPhase4Res.blueprintProgress.hasB2Anchor).toBe(true);
+    expect(bpPhase4Res.blueprintProgress.hasD2Anchor).toBe(false);
+
+    // 6. When A3, E3, B2, and D2 all have 8★, advances to Phase 5 (Grand Climax at C3)
+    board[cellToIndex(3, 1)] = 8; // D2 anchor achieved!
+    const bpPhase5Res = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
+    expect(bpPhase5Res.blueprintProgress.activePhase).toBe(5);
+    expect(bpPhase5Res.blueprintProgress.climaxReady).toBe(true);
+    expect(bpPhase5Res.blueprintProgress.recommendedCell?.label).toContain('C1');
+
+    // When C1, C2, C4, C5 are staged with 6★, next target is C3 (the Grand Climax drop)
+    board[cellToIndex(2, 0)] = 6; // C1
+    board[cellToIndex(2, 1)] = 6; // C2
+    board[cellToIndex(2, 3)] = 6; // C4
+    board[cellToIndex(2, 4)] = 6; // C5
+    const bpPhase5ClimaxDrop = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
+    expect(bpPhase5ClimaxDrop.blueprintProgress.recommendedCell?.label).toContain('C3');
   });
 });

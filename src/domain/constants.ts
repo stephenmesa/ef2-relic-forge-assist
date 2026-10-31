@@ -302,4 +302,14 @@ export const SOLVER_STRATEGIES: Record<SolverStrategyId, SolverStrategySpec> = {
     icon: '🧹',
     iconName: 'Sparkles',
   },
+  'hammer-cycle': {
+    id: 'hammer-cycle',
+    name: '🔨 Hammer Cycle (Super-Merge Engine)',
+    shortName: 'Hammer Cycle',
+    badge: '🔨 Super-Merge Engine',
+    description:
+      'Maximizes 5+ relic super-merges (+2★ jumps) and loops the generated hammers to aggressively keep the board clear and farm 10★ relics.',
+    icon: '🔨',
+    iconName: 'Hammer',
+  },
 };

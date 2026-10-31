@@ -184,7 +184,8 @@ export function simulateGame(
           nextPieceKnown,
           solverResult,
           hammers,
-          blueprintMode
+          blueprintMode,
+          strategyId
         );
         if (hammerAdvice.recommendedTarget) {
           board[hammerAdvice.recommendedTarget.cellIndex] = 0;
@@ -245,9 +246,15 @@ export function simulateGame(
       const bestMove = solverResult.topRecommendations[0];
       const emptyNow = countEmptyCells(board);
       const isCriticalCrunch = emptyNow <= 4;
+      const isHammerCycle = strategyId === 'hammer-cycle';
 
-      // If the best move is dangerous/lethal, or hammers are capped at 2/2, or board is critically crunched
-      if (bestMove.isLethal || hammers === MAX_HAMMERS || (isCriticalCrunch && hammers >= 1)) {
+      // Under hammer-cycle, be proactive whenever hammers >= 1 and an occupied cell is blocking progress or dead
+      const shouldCheckHammer =
+        isHammerCycle
+          ? hammers >= 1
+          : bestMove.isLethal || hammers === MAX_HAMMERS || (isCriticalCrunch && hammers >= 1);
+
+      if (shouldCheckHammer) {
         const hammerAdvice = evaluateHammerAdvice(
           board,
           maxUnlockedStar,
@@ -256,12 +263,14 @@ export function simulateGame(
           nextPieceKnown,
           solverResult,
           hammers,
-          blueprintMode
+          blueprintMode,
+          strategyId
         );
         if (
           hammerAdvice.shouldUseNow &&
           hammerAdvice.recommendedTarget &&
-          (hammerAdvice.urgency === 'critical-survival' ||
+          (isHammerCycle ||
+            hammerAdvice.urgency === 'critical-survival' ||
             (hammers === MAX_HAMMERS && hammerAdvice.recommendedTarget.isDeadRetired) ||
             (isCriticalCrunch && hammerAdvice.recommendedTarget.triangleSlotsGained > 0))
         ) {

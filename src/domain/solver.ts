@@ -168,10 +168,19 @@ export function evaluateTransitionReward(
         mergeScore += starJump >= 2 ? 32000 : 22000;
       } else if (strategyId === 'max-survival') {
         mergeScore += starJump >= 2 ? 24000 : 16000;
+      } else if (strategyId === 'hammer-cycle') {
+        // Hammer Cycle: Maximum reward for reaching the ultimate goal of 10★ relics!
+        mergeScore += starJump >= 2 ? 40000 : 30000;
       } else {
         // max-space: 10★ clears the landing cell, creating pure empty space!
         mergeScore += starJump >= 2 ? 34000 : 25000;
       }
+    }
+
+    // Strategy (hammer-cycle): Super-Merge Engine reward
+    if (strategyId === 'hammer-cycle' && m.mergedCells.length >= 5) {
+      const tierWeight = Math.pow(1.3, Math.max(1, m.fromStar - 3));
+      mergeScore += Math.round(5200 * tierWeight) + (m.mergedCells.length - 5) * 900;
     }
 
     // Strategy 3 (max-space): Direct reward for clearing tiles from the board
@@ -221,6 +230,17 @@ export function evaluateTransitionReward(
             : effectiveGained * 14000;
       } else {
         hammerEarnBonus = sim.hammersEarned * 2800;
+      }
+    } else if (strategyId === 'hammer-cycle') {
+      // Hammer Cycle: Hammers are the primary currency to keep board pristine
+      if (effectiveGained > 0) {
+        hammerEarnBonus =
+          clampedCurrent === 0
+            ? effectiveGained * 16000
+            : effectiveGained * 14000;
+      } else {
+        // Even when capped at 2/2, a super-merge that generates a hammer is a successful engine cycle
+        hammerEarnBonus = sim.hammersEarned * 4500;
       }
     } else {
       if (effectiveGained > 0) {
@@ -344,6 +364,7 @@ export function evaluateBoardState(
   vulnerableShapes: string[];
   compact3TriangleSlots: number;
   totalThreeTileSlots: number;
+  starsWithBridgeSite?: Set<number>;
 } {
   const validIndices = getValidCellIndices();
   const neighborsTable = getPrecomputedNeighbors();
@@ -506,6 +527,13 @@ export function evaluateBoardState(
       const deficit = 10 - emptyCells;
       emptySpaceScore -= deficit * deficit * 150;
     }
+  } else if (strategyId === 'hammer-cycle') {
+    // Hammer Cycle: Keep board open and roomy for 5-piece super-merge setups
+    emptySpaceScore = emptyCells * 270;
+    if (emptyCells < 10) {
+      const deficit = 10 - emptyCells;
+      emptySpaceScore -= deficit * deficit * 160;
+    }
   } else {
     // Mythic Climax / Balanced default
     emptySpaceScore = emptyCells * 210;
@@ -588,6 +616,9 @@ export function evaluateBoardState(
 
   const compSizeByCell = new Uint8Array(25);
   const compEmptyNeighborsByCell = new Uint8Array(25);
+  const compIdByCell = new Int16Array(25).fill(-1);
+  let compIdCounter = 0;
+  const compSizes: number[] = [];
   const islandsByStar = new Map<
     number,
     { size: number; emptyNeighbors: number; cells: number[] }[]
@@ -601,8 +632,12 @@ export function evaluateBoardState(
     const emptyNeighborSet = new Set<number>();
     let hasLowerOneNeighbor = false;
 
+    const compId = compIdCounter++;
+    compSizes.push(comp.length);
+
     for (const c of comp) {
       visitedComp[c] = 1;
+      compIdByCell[c] = compId;
       for (const nb of neighborsTable[c]) {
         const nbStar = board[nb];
         if (nbStar === 0) {
@@ -662,6 +697,56 @@ export function evaluateBoardState(
     }
   }
 
+  // Detect Super-Merge Bridge Sites: empty cells touching 2+ distinct components of the same star
+  // where the combined component sizes >= 4 (meaning placing 1 tile in this empty cell forms a 5+ super-merge!)
+  const starsWithBridgeSite = new Set<number>();
+  const bridgeCompIds = new Set<number>();
+
+  for (const emptyIdx of validIndices) {
+    if (board[emptyIdx] !== 0) continue;
+
+    // Group adjacent components by star
+    const compIdsByStar = new Map<number, Set<number>>();
+    for (const nb of neighborsTable[emptyIdx]) {
+      const nbStar = board[nb];
+      if (nbStar > 0) {
+        const cId = compIdByCell[nb];
+        if (cId >= 0) {
+          let cSet = compIdsByStar.get(nbStar);
+          if (!cSet) {
+            cSet = new Set<number>();
+            compIdsByStar.set(nbStar, cSet);
+          }
+          cSet.add(cId);
+        }
+      }
+    }
+
+    for (const [star, cSet] of compIdsByStar.entries()) {
+      if (cSet.size >= 2) {
+        let totalSize = 0;
+        for (const cId of cSet) {
+          totalSize += compSizes[cId] ?? 0;
+        }
+        if (totalSize >= 4) {
+          starsWithBridgeSite.add(star);
+          for (const cId of cSet) {
+            bridgeCompIds.add(cId);
+          }
+          if (strategyId === 'hammer-cycle') {
+            organizationScore += Math.round(
+              1900 * Math.pow(1.28, Math.max(0, star - 3))
+            );
+          } else if (strategyId === 'mythic-climax' && star >= 6) {
+            organizationScore += Math.round(
+              1200 * Math.pow(1.25, Math.max(0, star - 4))
+            );
+          }
+        }
+      }
+    }
+  }
+
   // Evaluate Same-Star Pairing & Island Fragmentation per Star Level
   for (const [star, islands] of islandsByStar.entries()) {
     // Sort islands so the best 2-tile pair with open neighbors comes first
@@ -686,6 +771,16 @@ export function evaluateBoardState(
           // Prime 8★ Pair primed for 9★ or 10★ super-merge
           pairBonus += 3500;
         }
+      } else if (strategyId === 'hammer-cycle') {
+        if (star === 8) {
+          pairBonus += 4500; // Prime 8★ pair ready to super-merge into 10★
+        } else if (star === 6) {
+          pairBonus += 3200; // Prime 6★ pair ready to super-merge into 8★
+        } else if (star === 4) {
+          pairBonus += 1800; // 4★ pair ready to super-merge into 6★
+        } else {
+          pairBonus += 500;
+        }
       } else if (strategyId === 'max-space') {
         // Pairs enable rapid 3-tile vacuum clears
         pairBonus += 450;
@@ -696,11 +791,16 @@ export function evaluateBoardState(
     // Penalize having multiple disconnected islands of the SAME star level (especially for 3★, 4★+)
     // EXCEPTION: If star >= 5 and the islands are co-located in the same outer column (Col 0 or Col 4),
     // they are intentionally staged for a 5-relic column super-merge (Guide Blueprint), NOT fragmented hoarding!
-    // Also, 8★ tiles being assembled for the 10★ Climax (Phase 4) are exempt from fragmentation penalties.
+    // Also, 8★ tiles being assembled for the 10★ Climax (Phase 4) and components forming a Super-Merge Bridge are exempt.
     if (islands.length > 1 && star !== 8) {
       let penalizableExtraIslands = 0;
       for (let i = 1; i < islands.length; i++) {
         const island = islands[i];
+        // Check if this island is part of an active super-merge bridge setup!
+        const isBridgeIsland = island.cells.some((c) =>
+          bridgeCompIds.has(compIdByCell[c])
+        );
+
         // Check if all cells of this island share an outer column with the first island
         const islandCols = new Set(island.cells.map((c) => indexToCoord(c).col));
         const firstCols = new Set(bestIsland.cells.map((c) => indexToCoord(c).col));
@@ -709,7 +809,7 @@ export function evaluateBoardState(
           islandCols.size === 1 &&
           firstCols.size === 1 &&
           ((islandCols.has(0) && firstCols.has(0)) || (islandCols.has(4) && firstCols.has(4)));
-        if (!isCoLocatedInOuterCol) {
+        if (!isCoLocatedInOuterCol && !isBridgeIsland) {
           penalizableExtraIslands++;
         }
       }
@@ -893,6 +993,7 @@ export function evaluateBoardState(
     vulnerableShapes: shapeMob.vulnerableShapes,
     compact3TriangleSlots: shapeMob.compact3TriangleSlots,
     totalThreeTileSlots: shapeMob.totalThreeTileSlots,
+    starsWithBridgeSite,
   };
 }
 
@@ -1582,7 +1683,14 @@ export function solveBestMoves(
       const { col: landCol, row: landRow } = indexToCoord(m0.landingCell);
       const isOuterCenter = (landCol === 0 || landCol === 4) && landRow === 2;
       const anchorName = formatCellCoord(landCol, landRow);
-      if (isOuterCenter) {
+      if (strategyId === 'hammer-cycle') {
+        const starJump = m0.toStar - m0.fromStar;
+        const jumpText = starJump >= 2 ? ` (+2★ Jump → ${m0.toStar}★)` : '';
+        strategicTag = {
+          label: `🔨 Hammer Cycle Engine • 5+ Super-Merge (+1 Hammer)${jumpText}`,
+          tone: 'chain',
+        };
+      } else if (isOuterCenter) {
         strategicTag = {
           label: `🏛️ Blueprint 5-Super-Merge → ${m0.toStar}★ at ${anchorName} + 🔨 Hammer (${hammersAfterPly1}/${MAX_HAMMERS})`,
           tone: 'chain',
@@ -1636,6 +1744,18 @@ export function solveBestMoves(
     } else if (strategyId === 'max-survival' && terminalEval.totalThreeTileSlots >= 20) {
       strategicTag = {
         label: `🛡️ Survivalist Guard • High Mobility (${terminalEval.totalThreeTileSlots} 3-slots open)`,
+        tone: 'setup',
+      };
+    } else if (
+      strategyId === 'hammer-cycle' &&
+      terminalEval.starsWithBridgeSite &&
+      terminalEval.starsWithBridgeSite.size > 0
+    ) {
+      const starsStr = Array.from(terminalEval.starsWithBridgeSite)
+        .map((s) => `${s}★`)
+        .join(', ');
+      strategicTag = {
+        label: `⚡ Super-Merge Bridge Setup (${starsStr})`,
         tone: 'setup',
       };
     } else if (ply1Sim.maxChainDepth >= 2) {
@@ -1874,7 +1994,8 @@ export function evaluateHammerAdvice(
     lethalMoves: CandidateMove[];
   },
   hammersAvailable: number | boolean = 1,
-  blueprintMode: boolean = false
+  blueprintMode: boolean = false,
+  strategyId: SolverStrategyId = DEFAULT_STRATEGY_ID
 ): HammerAdvice {
   const hammerCount = normalizeHammerCount(hammersAvailable);
   const validIndices = getValidCellIndices();
@@ -1955,13 +2076,14 @@ export function evaluateHammerAdvice(
     // Priority heuristic: Dead retired tiles first, then At-Risk, then low-star central blockers;
     // strongly avoid destroying high-tier relics (star >= maxUnlockedStar)
     const isPerimeterContamination = blueprintMode && (col === 0 || col === 4) && star < 6;
+    const isHammerCycle = strategyId === 'hammer-cycle';
     const priorityScore =
-      (isDeadRetired ? 10000 : isAtRisk ? 4500 : 0) +
+      (isDeadRetired ? (isHammerCycle ? 15000 : 10000) : isAtRisk ? (isHammerCycle ? 7000 : 4500) : 0) +
       (isPerimeterContamination ? 16000 : 0) +
       (isCentralCol ? 600 : 0) +
       adjacentOccupied * 180 +
       adjacentDifferentPairs * 900 -
-      star * 700;
+      star * (isHammerCycle && star <= 4 ? 400 : 700);
 
     return { cellIdx, star, col, row, isDeadRetired, isAtRisk, priorityScore };
   });
@@ -1980,7 +2102,10 @@ export function evaluateHammerAdvice(
       currentPiece,
       nextPiece,
       false,
-      remainingHammersAfterUse
+      remainingHammersAfterUse,
+      MAX_RUN_PLACEMENTS,
+      blueprintMode,
+      strategyId
     );
     const fastBest = fastSim.topRecommendations[0] ?? null;
     // Deduct intrinsic relic value if smashing an active non-retired relic
@@ -2008,7 +2133,10 @@ export function evaluateHammerAdvice(
       currentPiece,
       nextPiece,
       nextPieceKnown,
-      remainingHammersAfterUse
+      remainingHammersAfterUse,
+      MAX_RUN_PLACEMENTS,
+      blueprintMode,
+      strategyId
     );
     const bestMoveAfterHammer = fullSim.topRecommendations[0] ?? null;
     const afterScore = bestMoveAfterHammer
@@ -2278,6 +2406,26 @@ export function evaluateHammerAdvice(
       shouldUseNow: true,
       headline: `🔨 PROACTIVE HAMMER — Clear Wedged ${bestTarget.star}★ at ${targetCoord}`,
       rationale: `This ${bestTarget.star}★ relic is wedging higher-tier pairs apart in a central lane. Smashing it restores +${bestTarget.triangleSlotsGained} 3-Triangle placement(s) and connects your merge pipeline.`,
+      recommendedTarget: bestTarget,
+      alternativeTargets,
+    };
+  }
+
+  // 7b. Hammer Cycle Super-Merge Engine Cleanup: In hammer-cycle mode, actively spend hammers to eliminate dead tiles or blockers
+  if (
+    strategyId === 'hammer-cycle' &&
+    (bestTarget.isDeadRetired ||
+      (bestTarget.isAtRisk && emptyCellsNow <= 16) ||
+      (bestTarget.star <= 4 && (bestTarget.triangleSlotsGained > 0 || bestTarget.netGainScore >= 350) && emptyCellsNow <= 15) ||
+      hammerCount >= MAX_HAMMERS)
+  ) {
+    return {
+      urgency: 'good-cleanup',
+      shouldUseNow: true,
+      headline: `🔨 HAMMER CYCLE — Smash ${targetCoord} (${bestTarget.star}★) to Keep Board Clear`,
+      rationale: `In Hammer Cycle mode, super-merges constantly refill hammers. Smashing this ${
+        bestTarget.isDeadRetired ? 'retired dead tile' : 'blocker'
+      } at ${targetCoord} keeps the board clear and accelerates assembling 5-relic super-merges towards 10★ relics.`,
       recommendedTarget: bestTarget,
       alternativeTargets,
     };

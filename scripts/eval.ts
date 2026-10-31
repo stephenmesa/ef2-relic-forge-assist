@@ -22,7 +22,7 @@ Usage:
   npm run eval [-- options]
 
 Options:
-  -s, --strategy <id>    Strategy to test ('mythic-climax' | 'max-survival' | 'max-space')
+  -s, --strategy <id>    Strategy to test ('mythic-climax' | 'max-survival' | 'max-space' | 'hammer-cycle')
                          Default: 'mythic-climax'
   -n, --games <number>   Number of games to simulate (default: 30)
   --quick                Quick run (15 games, ~2-3 seconds)
@@ -39,6 +39,7 @@ Available Strategies:
   • mythic-climax: 👑 10★ Climax / Mythic Forge (Default)
   • max-survival:  🛡️ Max Moves & Survivalist
   • max-space:     🧹 Max Empty Space & Board Cleaner
+  • hammer-cycle:  🔨 Hammer Cycle (Super-Merge Engine & 10★ Farm)
 `);
 }
 

@@ -226,7 +226,8 @@ export interface BlueprintProgress {
 export type SolverStrategyId =
   | 'mythic-climax' // The current balanced 10★ Climax / Mythic Forge strategy
   | 'max-survival'  // Maximum moves / survival strategy (avoid locks, preserve mobility)
-  | 'max-space';    // Maximum empty space / board cleaner strategy (vacuum cleaning, big tile clearings)
+  | 'max-space'     // Maximum empty space / board cleaner strategy (vacuum cleaning, big tile clearings)
+  | 'hammer-cycle'; // Super-Merge Engine: maximizes 5+ merges, loops hammer economy to clear board & farm 10★ relics
 
 export interface SolverStrategySpec {
   id: SolverStrategyId;
@@ -235,5 +236,5 @@ export interface SolverStrategySpec {
   badge: string;
   description: string;
   icon: string;
-  iconName: 'Crown' | 'Shield' | 'Sparkles';
+  iconName: 'Crown' | 'Shield' | 'Sparkles' | 'Hammer';
 }

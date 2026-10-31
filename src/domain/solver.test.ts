@@ -4,6 +4,7 @@ import {
   MAX_HAMMERS,
   MAX_RUN_PLACEMENTS,
   MAX_STAR_UPGRADE_TARGET_GRADE,
+  SOLVER_STRATEGIES,
   getMinActiveSpawnStar,
 } from './constants';
 import {
@@ -21,10 +22,12 @@ import {
   simulateStarUpgrade,
 } from './simulator';
 import {
+  evaluateBoardState,
   evaluateHammerAdvice,
   evaluateStarAdvice,
   solveBestMoves,
 } from './solver';
+import { PieceConfig } from '../types/forge';
 
 describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
   it('1. Honeycomb Adjacency Verification: Even and Odd column 6-neighbor lookup matches Section 2.1', () => {
@@ -775,5 +778,36 @@ describe('EF2 Relic Forge Domain & Solver Verification Suite', () => {
     board[cellToIndex(2, 4)] = 6; // C5
     const bpPhase5ClimaxDrop = solveBestMoves(board, 8, piece, piece, false, 1, 1000, true);
     expect(bpPhase5ClimaxDrop.blueprintProgress.recommendedCell?.label).toContain('C3');
+  });
+
+  it('21. Hammer Cycle Strategy: Prioritizes 5+ Super-Merges and Bridge Sites', () => {
+    expect(SOLVER_STRATEGIES['hammer-cycle']).toBeDefined();
+    expect(SOLVER_STRATEGIES['hammer-cycle'].name).toContain('Hammer Cycle');
+
+    // Create a board with two 6★ pairs that share an empty bridge cell at A3 (col 0, row 2)
+    // A1=6★, A2=6★, A4=6★, A5=6★, with A3=0
+    const board = new Uint8Array(25);
+    board[cellToIndex(0, 0)] = 6;
+    board[cellToIndex(0, 1)] = 6;
+    board[cellToIndex(0, 3)] = 6;
+    board[cellToIndex(0, 4)] = 6;
+
+    const evalRes = evaluateBoardState(board, 6, board, 6, 1, [], undefined, 'hammer-cycle');
+    expect(evalRes.starsWithBridgeSite?.has(6)).toBe(true);
+
+    // Dropping a single 6★ into A3 connects them into a 5-relic super-merge!
+    const singlePiece: PieceConfig = {
+      shapeId: 'single',
+      rotation: 0,
+      tileStars: [6],
+    };
+
+    const solveRes = solveBestMoves(board, 6, singlePiece, singlePiece, false, 1, 1000, false, 'hammer-cycle');
+    const bestMove = solveRes.topRecommendations[0];
+    expect(bestMove).toBeDefined();
+    expect(bestMove.ply1Sim.hammersEarned).toBe(1);
+    expect(bestMove.ply1Sim.merges[0].mergedCells.length).toBe(5);
+    expect(bestMove.ply1Sim.merges[0].toStar).toBe(8); // +2★ jump!
+    expect(bestMove.strategicTag.label).toContain('Hammer Cycle');
   });
 });
